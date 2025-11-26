@@ -1,0 +1,16 @@
+# Daily Reminder Bot Configuration
+# Copy this file to config.yaml and fill in your actual values
+
+telegram:
+  token: "YOUR_TELEGRAM_BOT_TOKEN"  # Get from @BotFather
+  api_endpoint: "https://api.telegram.org" # Optional: Custom Telegram Bot API endpoint
+
+qweather:
+  api_key: "YOUR_QWEATHER_API_KEY"  # Get from https://dev.qweather.com
+  base_url: "https://devapi.qweather.com/v7"
+
+database:
+  path: "./data/bot.db"  # SQLite database file path
+
+scheduler:
+  timezone: "Asia/Shanghai"  # Timezone for scheduling reminders
