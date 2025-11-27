@@ -20,12 +20,12 @@ type DateInfo struct {
 type FestivalType int
 
 const (
-	FestivalTypeSolarTerm  FestivalType = iota + 1 // 节气
-	FestivalTypeLunar                              // 农历节日
-	FestivalTypeSolar                              // 公历节日
-	FestivalTypeStatutory                          // 法定节假日
-	FestivalTypeWestern                            // 西方节日
-	FestivalTypeFloating                           // 浮动节日（如母亲节）
+	FestivalTypeSolarTerm FestivalType = iota + 1 // 节气
+	FestivalTypeLunar                             // 农历节日
+	FestivalTypeSolar                             // 公历节日
+	FestivalTypeStatutory                         // 法定节假日
+	FestivalTypeWestern                           // 西方节日
+	FestivalTypeFloating                          // 浮动节日（如母亲节）
 )
 
 // String returns the Chinese name of the festival type

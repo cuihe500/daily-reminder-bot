@@ -195,20 +195,16 @@ func (c *Calculator) getLunarFestivals(date time.Time) []Festival {
 
 func (c *Calculator) getChuxi(lunarYear int) time.Time {
 	// 除夕 is the last day of the 12th lunar month
-	// Try 腊月三十 first
-	lunarDate := calendar.NewLunarFromYmd(lunarYear, 12, 30)
-	if lunarDate.GetMonth() == 12 && lunarDate.GetDay() == 30 {
-		solarDate := lunarDate.GetSolar()
-		return time.Date(
-			solarDate.GetYear(),
-			time.Month(solarDate.GetMonth()),
-			solarDate.GetDay(),
-			0, 0, 0, 0, c.timezone,
-		)
+	// Start with 12/29, which always exists
+	lunarDate := calendar.NewLunarFromYmd(lunarYear, 12, 29)
+
+	// Check if the next day is still in the 12th month
+	nextDay := lunarDate.Next(1)
+	if nextDay.GetMonth() == 12 {
+		// If next day is still 12th month, then it has 30 days
+		lunarDate = nextDay
 	}
 
-	// If 腊月 doesn't have 30 days, use 腊月二十九
-	lunarDate = calendar.NewLunarFromYmd(lunarYear, 12, 29)
 	solarDate := lunarDate.GetSolar()
 	return time.Date(
 		solarDate.GetYear(),

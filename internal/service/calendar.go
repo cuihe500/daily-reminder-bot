@@ -92,6 +92,7 @@ func (s *CalendarService) FormatUpcomingFestivals(date time.Time, limit int) str
 		holidayDays := f.HolidayDays
 		if nextStatutory != nil && f.Name == nextStatutory.Name && f.IsHoliday {
 			// Use API data if available (more accurate)
+			return ""
 		}
 
 		if f.DaysUntil == 0 {

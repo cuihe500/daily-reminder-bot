@@ -267,4 +267,3 @@ func (s *SchedulerService) sendFallbackReminder(sub model.Subscription, now time
 		logger.Error("Error sending fallback reminder", zap.Uint("user_id", sub.UserID), zap.Error(err))
 	}
 }
-
