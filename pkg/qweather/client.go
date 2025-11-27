@@ -35,7 +35,7 @@ func (c *Client) GetLocationID(city string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get location: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var geoResp GeoLocationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&geoResp); err != nil {
@@ -55,13 +55,13 @@ func (c *Client) GetCurrentWeather(locationID string) (*CurrentWeather, error) {
 	params.Add("location", locationID)
 	params.Add("key", c.apiKey)
 
-	url := fmt.Sprintf("%s/weather/now?%s", c.baseURL, params.Encode())
+	url := fmt.Sprintf("%s/v7/weather/now?%s", c.baseURL, params.Encode())
 
 	resp, err := c.client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get weather: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var weatherResp WeatherResponse
 	if err := json.NewDecoder(resp.Body).Decode(&weatherResp); err != nil {
@@ -82,13 +82,13 @@ func (c *Client) GetLifeIndices(locationID string) ([]LifeIndex, error) {
 	params.Add("key", c.apiKey)
 	params.Add("type", "0") // 0 = all indices
 
-	url := fmt.Sprintf("%s/indices/1d?%s", c.baseURL, params.Encode())
+	url := fmt.Sprintf("%s/v7/indices/1d?%s", c.baseURL, params.Encode())
 
 	resp, err := c.client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get life indices: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var indicesResp LifeIndicesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&indicesResp); err != nil {

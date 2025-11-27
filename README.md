@@ -100,10 +100,13 @@ go build -o bot cmd/bot/main.go
 
 ### 基本命令
 
-- `/register` - 注册机器人
+- `/start` - 开始使用机器人
 - `/help` - 查看帮助信息
-- `/subscribe 北京 08:00` - 订阅每日提醒
-- ``
+- `/subscribe <城市> <时间>` - 订阅每日提醒
+- `/mystatus` - 查询订阅状态
+- `/unsubscribe` - 取消订阅
+- `/weather [城市]` - 查询天气
+- `/todo` - 待办事项管理
 
 ### 订阅每日提醒
 
@@ -112,6 +115,22 @@ go build -o bot cmd/bot/main.go
 ```
 
 每天早上8点将收到北京的天气和待办提醒。
+
+### 查询订阅状态
+
+```
+/mystatus
+```
+
+查看当前的订阅信息，包括城市和提醒时间。
+
+### 取消订阅
+
+```
+/unsubscribe
+```
+
+取消每日提醒订阅，可随时使用 `/subscribe` 重新订阅。
 
 ### 查询天气
 

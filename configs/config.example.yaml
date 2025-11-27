@@ -7,10 +7,46 @@ telegram:
 
 qweather:
   api_key: "YOUR_QWEATHER_API_KEY"  # Get from https://dev.qweather.com
-  base_url: "https://devapi.qweather.com/v7"
+  base_url: "https://devapi.qweather.com"
+
+# OpenAI-compatible API configuration
+# Supports OpenAI, DeepSeek, Zhipu (智谱), and other compatible services
+openai:
+  enabled: true                               # Enable AI-generated reminders
+  api_key: "YOUR_API_KEY"                     # API key
+  base_url: "https://api.openai.com/v1"       # API endpoint
+  # Alternative endpoints:
+  # DeepSeek: https://api.deepseek.com/v1
+  # Zhipu (智谱): https://open.bigmodel.cn/api/paas/v4
+  # Tongyi (通义千问): https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: "gpt-4o-mini"                        # Model name
+  max_tokens: 800                             # Maximum tokens to generate
+  temperature: 0.7                            # Generation temperature (0-2)
+  timeout: 30                                 # Request timeout in seconds
+  max_retries: 3                              # Maximum retry attempts
+
+# Holiday API configuration for statutory holidays
+holiday:
+  api_url: "https://www.jiejiariapi.com"  # Holiday API base URL (or https://holiday.ailcc.com)
+  cache_ttl: 86400                        # Cache TTL in seconds (default: 24 hours)
 
 database:
+  type: "sqlite"  # Database type: "sqlite" or "mysql"
+
+  # SQLite configuration (used when type is "sqlite")
   path: "./data/bot.db"  # SQLite database file path
+
+  # MySQL configuration (used when type is "mysql")
+  host: "localhost"
+  port: 3306
+  user: "root"
+  password: "YOUR_MYSQL_PASSWORD"
+  dbname: "daily_reminder_bot"
+  charset: "utf8mb4"
 
 scheduler:
   timezone: "Asia/Shanghai"  # Timezone for scheduling reminders
+
+logger:
+  level: "info"      # Log level: debug, info, warn, error
+  format: "console"  # Log format: console or json

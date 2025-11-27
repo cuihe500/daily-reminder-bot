@@ -42,6 +42,8 @@ func NewHandlers(
 func (h *Handlers) RegisterHandlers(bot *tele.Bot) {
 	bot.Handle("/start", h.HandleStart)
 	bot.Handle("/subscribe", h.HandleSubscribe)
+	bot.Handle("/mystatus", h.HandleMyStatus)
+	bot.Handle("/unsubscribe", h.HandleUnsubscribe)
 	bot.Handle("/weather", h.HandleWeather)
 	bot.Handle("/todo", h.HandleTodo)
 	bot.Handle("/help", h.HandleHelp)
@@ -127,6 +129,58 @@ func (h *Handlers) HandleSubscribe(c tele.Context) error {
 	}
 
 	return c.Send(fmt.Sprintf("✅ 订阅成功！\n📍 城市：%s\n⏰ 时间：%s\n\n每天将在该时间为您推送天气和待办提醒。", city, reminderTime))
+}
+
+// HandleMyStatus handles the /mystatus command
+func (h *Handlers) HandleMyStatus(c tele.Context) error {
+	chatID := c.Sender().ID
+
+	user, err := h.userRepo.GetOrCreate(chatID)
+	if err != nil {
+		log.Printf("Error getting user: %v", err)
+		return c.Send("抱歉,系统出现错误,请稍后再试。")
+	}
+
+	sub, err := h.subRepo.FindByUserID(user.ID)
+	if err != nil {
+		log.Printf("Error finding subscription: %v", err)
+		return c.Send("抱歉,系统出现错误,请稍后再试。")
+	}
+
+	if sub == nil || !sub.Active {
+		return c.Send("📭 您当前没有订阅每日提醒\n\n使用 /subscribe <城市> <时间> 开始订阅")
+	}
+
+	return c.Send(fmt.Sprintf("📬 您的订阅状态\n\n📍 城市：%s\n⏰ 提醒时间：%s\n✅ 状态：已激活\n\n使用 /unsubscribe 可以取消订阅", sub.City, sub.ReminderTime))
+}
+
+// HandleUnsubscribe handles the /unsubscribe command
+func (h *Handlers) HandleUnsubscribe(c tele.Context) error {
+	chatID := c.Sender().ID
+
+	user, err := h.userRepo.GetOrCreate(chatID)
+	if err != nil {
+		log.Printf("Error getting user: %v", err)
+		return c.Send("抱歉,系统出现错误,请稍后再试。")
+	}
+
+	sub, err := h.subRepo.FindByUserID(user.ID)
+	if err != nil {
+		log.Printf("Error finding subscription: %v", err)
+		return c.Send("抱歉,系统出现错误,请稍后再试。")
+	}
+
+	if sub == nil || !sub.Active {
+		return c.Send("📭 您当前没有订阅每日提醒")
+	}
+
+	sub.Active = false
+	if err := h.subRepo.Update(sub); err != nil {
+		log.Printf("Error updating subscription: %v", err)
+		return c.Send("抱歉,系统出现错误,请稍后再试。")
+	}
+
+	return c.Send("✅ 已成功取消订阅\n\n使用 /subscribe <城市> <时间> 可以重新订阅")
 }
 
 // HandleWeather handles the /weather command
@@ -243,16 +297,18 @@ func (h *Handlers) HandleHelp(c tele.Context) error {
 /start - 开始使用机器人
 /subscribe <城市> <时间> - 订阅每日提醒
   示例: /subscribe 北京 08:00
-  
+/mystatus - 查询订阅状态
+/unsubscribe - 取消订阅
+
 /weather [城市] - 查询天气
   示例: /weather 上海
-  
+
 /todo - 待办事项管理
   /todo - 列出所有待办
   /todo add <内容> - 添加待办
   /todo done <编号> - 完成待办
   /todo delete <编号> - 删除待办
-  
+
 /help - 显示此帮助信息`
 
 	return c.Send(message)

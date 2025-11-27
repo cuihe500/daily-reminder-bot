@@ -9,7 +9,12 @@ import (
 
 // WeatherService handles weather-related business logic
 type WeatherService struct {
-	client *qweather.Client
+	client *qweather.Client // exported via getter for scheduler access
+}
+
+// Client returns the underlying QWeather client
+func (s *WeatherService) Client() *qweather.Client {
+	return s.client
 }
 
 // NewWeatherService creates a new WeatherService
