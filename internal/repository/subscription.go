@@ -40,30 +40,26 @@ func (r *SubscriptionRepository) Create(sub *model.Subscription) error {
 	return nil
 }
 
-// FindByUserID finds a subscription by user ID
-func (r *SubscriptionRepository) FindByUserID(userID uint) (*model.Subscription, error) {
+// FindByUserID finds all active subscriptions by user ID
+func (r *SubscriptionRepository) FindByUserID(userID uint) ([]model.Subscription, error) {
 	logger.Debug("SubscriptionRepository.FindByUserID called",
 		zap.Uint("user_id", userID))
 
-	var sub model.Subscription
-	err := r.db.Where("user_id = ? AND active = ?", userID, true).First(&sub).Error
+	var subs []model.Subscription
+	err := r.db.Where("user_id = ? AND active = ?", userID, true).
+		Order("created_at ASC").
+		Find(&subs).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			logger.Debug("Active subscription not found",
-				zap.Uint("user_id", userID))
-			return nil, nil
-		}
-		logger.Error("Failed to find subscription",
+		logger.Error("Failed to find subscriptions",
 			zap.Uint("user_id", userID),
 			zap.Error(err))
-		return nil, fmt.Errorf("failed to find subscription: %w", err)
+		return nil, fmt.Errorf("failed to find subscriptions: %w", err)
 	}
 
-	logger.Debug("Subscription found",
-		zap.Uint("subscription_id", sub.ID),
+	logger.Debug("Subscriptions found",
 		zap.Uint("user_id", userID),
-		zap.String("city", sub.City))
-	return &sub, nil
+		zap.Int("count", len(subs)))
+	return subs, nil
 }
 
 // Update updates a subscription
@@ -119,4 +115,104 @@ func (r *SubscriptionRepository) GetByReminderTime(reminderTime string) ([]model
 		zap.String("reminder_time", reminderTime),
 		zap.Int("count", len(subs)))
 	return subs, nil
+}
+
+// FindByID finds a subscription by ID
+func (r *SubscriptionRepository) FindByID(id uint) (*model.Subscription, error) {
+	logger.Debug("SubscriptionRepository.FindByID called",
+		zap.Uint("id", id))
+
+	var sub model.Subscription
+	err := r.db.Where("id = ?", id).First(&sub).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Debug("Subscription not found",
+				zap.Uint("id", id))
+			return nil, nil
+		}
+		logger.Error("Failed to find subscription",
+			zap.Uint("id", id),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to find subscription: %w", err)
+	}
+
+	logger.Debug("Subscription found",
+		zap.Uint("id", id),
+		zap.String("city", sub.City))
+	return &sub, nil
+}
+
+// FindByUserAndCity finds an active subscription by user ID and city
+func (r *SubscriptionRepository) FindByUserAndCity(userID uint, city string) (*model.Subscription, error) {
+	logger.Debug("SubscriptionRepository.FindByUserAndCity called",
+		zap.Uint("user_id", userID),
+		zap.String("city", city))
+
+	var sub model.Subscription
+	err := r.db.Where("user_id = ? AND city = ? AND active = ?", userID, city, true).First(&sub).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Debug("Subscription not found",
+				zap.Uint("user_id", userID),
+				zap.String("city", city))
+			return nil, nil
+		}
+		logger.Error("Failed to find subscription",
+			zap.Uint("user_id", userID),
+			zap.String("city", city),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to find subscription: %w", err)
+	}
+
+	logger.Debug("Subscription found",
+		zap.Uint("subscription_id", sub.ID),
+		zap.Uint("user_id", userID),
+		zap.String("city", city))
+	return &sub, nil
+}
+
+// CountActiveByUser counts active subscriptions for a user
+func (r *SubscriptionRepository) CountActiveByUser(userID uint) (int64, error) {
+	logger.Debug("SubscriptionRepository.CountActiveByUser called",
+		zap.Uint("user_id", userID))
+
+	var count int64
+	err := r.db.Model(&model.Subscription{}).
+		Where("user_id = ? AND active = ?", userID, true).
+		Count(&count).Error
+	if err != nil {
+		logger.Error("Failed to count subscriptions",
+			zap.Uint("user_id", userID),
+			zap.Error(err))
+		return 0, fmt.Errorf("failed to count subscriptions: %w", err)
+	}
+
+	logger.Debug("Subscription count retrieved",
+		zap.Uint("user_id", userID),
+		zap.Int64("count", count))
+	return count, nil
+}
+
+// Delete soft deletes a subscription
+func (r *SubscriptionRepository) Delete(id uint) error {
+	logger.Debug("SubscriptionRepository.Delete called",
+		zap.Uint("id", id))
+
+	result := r.db.Delete(&model.Subscription{}, id)
+	if result.Error != nil {
+		logger.Error("Failed to delete subscription",
+			zap.Uint("id", id),
+			zap.Error(result.Error))
+		return fmt.Errorf("failed to delete subscription: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		logger.Warn("Subscription not found for deletion",
+			zap.Uint("id", id))
+		return fmt.Errorf("subscription not found")
+	}
+
+	logger.Info("Subscription deleted successfully",
+		zap.Uint("id", id))
+	return nil
 }

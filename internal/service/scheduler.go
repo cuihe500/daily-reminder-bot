@@ -23,6 +23,7 @@ type SchedulerService struct {
 	todoSvc     *TodoService
 	aiSvc       *AIService
 	calendarSvc *CalendarService
+	warningSvc  *WarningService
 	bot         *tele.Bot
 	timezone    *time.Location
 }
@@ -34,6 +35,7 @@ func NewSchedulerService(
 	todoSvc *TodoService,
 	aiSvc *AIService,
 	calendarSvc *CalendarService,
+	warningSvc *WarningService,
 	bot *tele.Bot,
 	timezoneStr string,
 ) (*SchedulerService, error) {
@@ -51,6 +53,7 @@ func NewSchedulerService(
 		todoSvc:     todoSvc,
 		aiSvc:       aiSvc,
 		calendarSvc: calendarSvc,
+		warningSvc:  warningSvc,
 		bot:         bot,
 		timezone:    loc,
 	}, nil
@@ -61,7 +64,16 @@ func (s *SchedulerService) Start() error {
 	// Schedule a job every minute to check for reminders
 	_, err := s.cron.AddFunc("* * * * *", s.checkReminders)
 	if err != nil {
-		return fmt.Errorf("failed to add cron job: %w", err)
+		return fmt.Errorf("failed to add reminder cron job: %w", err)
+	}
+
+	// Schedule weather warning check every 15 minutes
+	if s.warningSvc != nil {
+		_, err = s.cron.AddFunc("*/15 * * * *", s.checkWarnings)
+		if err != nil {
+			return fmt.Errorf("failed to add warning cron job: %w", err)
+		}
+		logger.Info("Warning check scheduled (every 15 minutes)")
 	}
 
 	s.cron.Start()
@@ -88,6 +100,18 @@ func (s *SchedulerService) checkReminders() {
 
 	for _, sub := range subs {
 		go s.sendReminder(sub)
+	}
+}
+
+// checkWarnings checks for weather warnings and notifies subscribed users
+func (s *SchedulerService) checkWarnings() {
+	logger.Debug("Checking weather warnings")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	if err := s.warningSvc.CheckAndNotify(ctx); err != nil {
+		logger.Error("Failed to check warnings", zap.Error(err))
 	}
 }
 
@@ -119,10 +143,27 @@ func (s *SchedulerService) sendReminder(sub model.Subscription) {
 		indices = nil
 	}
 
-	// Get incomplete todos
-	todos, err := s.todoSvc.GetIncompleteTodos(sub.UserID)
+	// Get air quality (non-critical, failure won't interrupt)
+	airQuality, err := s.weatherSvc.Client().GetAirNow(locationID)
 	if err != nil {
-		logger.Warn("Failed to get todos", zap.Uint("user_id", sub.UserID), zap.Error(err))
+		logger.Warn("Failed to get air quality", zap.Uint("user_id", sub.UserID), zap.Error(err))
+		airQuality = nil
+	}
+
+	// Get weather warnings (non-critical, failure won't interrupt)
+	var warnings []qweather.Warning
+	if s.warningSvc != nil {
+		warnings, err = s.weatherSvc.Client().GetWarningNow(locationID)
+		if err != nil {
+			logger.Warn("Failed to get warnings", zap.Uint("user_id", sub.UserID), zap.Error(err))
+			warnings = nil
+		}
+	}
+
+	// Get incomplete todos
+	todos, err := s.todoSvc.GetIncompleteTodos(sub.ID)
+	if err != nil {
+		logger.Warn("Failed to get todos", zap.Uint("subscription_id", sub.ID), zap.Error(err))
 		todos = nil
 	}
 
@@ -142,6 +183,7 @@ func (s *SchedulerService) sendReminder(sub model.Subscription) {
 			LifeIndices:  indices,
 			Todos:        todos,
 			CalendarInfo: calendarInfo,
+			AirQuality:   airQuality,
 		}
 
 		aiContent, ok := s.aiSvc.GenerateReminder(ctx, data)
@@ -152,7 +194,7 @@ func (s *SchedulerService) sendReminder(sub model.Subscription) {
 
 	// Fallback to fixed template if AI generation failed or disabled
 	if message == "" {
-		message = s.buildFallbackMessage(sub.City, weather, indices, todos, now, s.aiSvc != nil && s.aiSvc.IsEnabled())
+		message = s.buildFallbackMessage(sub.City, weather, indices, airQuality, warnings, todos, now, s.aiSvc != nil && s.aiSvc.IsEnabled())
 	}
 
 	// Send message to user
@@ -168,6 +210,8 @@ func (s *SchedulerService) buildFallbackMessage(
 	city string,
 	weather *qweather.CurrentWeather,
 	indices []qweather.LifeIndex,
+	airQuality *qweather.AirNow,
+	warnings []qweather.Warning,
 	todos []model.Todo,
 	now time.Time,
 	aiWasEnabled bool,
@@ -176,6 +220,16 @@ func (s *SchedulerService) buildFallbackMessage(
 
 	// Date header with calendar info
 	report.WriteString("🌅 早安！今日提醒\n")
+
+	// Weather warnings at the top (if any)
+	if len(warnings) > 0 {
+		report.WriteString("\n⚠️ 天气预警\n")
+		for _, w := range warnings {
+			emoji := getWarningEmojiFromColor(w.SeverityColor)
+			report.WriteString(fmt.Sprintf("%s %s\n", emoji, w.Title))
+		}
+		report.WriteString("\n")
+	}
 	if s.calendarSvc != nil {
 		dateHeader := s.calendarSvc.FormatDateHeader(now)
 		report.WriteString(fmt.Sprintf("📆 %s\n", dateHeader))
@@ -213,6 +267,16 @@ func (s *SchedulerService) buildFallbackMessage(
 					report.WriteString(fmt.Sprintf("   %s\n", index.Text))
 				}
 			}
+		}
+		report.WriteString("\n")
+	}
+
+	// Add air quality
+	if airQuality != nil {
+		report.WriteString("🌫️ 空气质量：\n")
+		report.WriteString(fmt.Sprintf("   AQI：%s（%s）\n", airQuality.Aqi, airQuality.Category))
+		if airQuality.Primary != "" && airQuality.Primary != "NA" {
+			report.WriteString(fmt.Sprintf("   主要污染物：%s\n", airQuality.Primary))
 		}
 		report.WriteString("\n")
 	}
@@ -265,5 +329,21 @@ func (s *SchedulerService) sendFallbackReminder(sub model.Subscription, now time
 	_, err := s.bot.Send(recipient, message.String())
 	if err != nil {
 		logger.Error("Error sending fallback reminder", zap.Uint("user_id", sub.UserID), zap.Error(err))
+	}
+}
+
+// getWarningEmojiFromColor returns an emoji based on warning severity color
+func getWarningEmojiFromColor(severityColor string) string {
+	switch severityColor {
+	case "Red":
+		return "🔴"
+	case "Orange":
+		return "🟠"
+	case "Yellow":
+		return "🟡"
+	case "Blue":
+		return "🔵"
+	default:
+		return "⚠️"
 	}
 }

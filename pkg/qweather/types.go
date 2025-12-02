@@ -89,3 +89,62 @@ type GeoLocation struct {
 	UtcOffset string `json:"utcOffset"` // UTC offset
 	Type      string `json:"type"`      // Location type
 }
+
+// AirNowResponse represents the response from QWeather API for current air quality
+type AirNowResponse struct {
+	Code string `json:"code"`
+	Now  AirNow `json:"now"`
+}
+
+// AirNow represents current air quality data
+type AirNow struct {
+	PubTime  string `json:"pubTime"`  // Publication time
+	Aqi      string `json:"aqi"`      // Air Quality Index
+	Level    string `json:"level"`    // Air quality level
+	Category string `json:"category"` // Air quality category
+	Primary  string `json:"primary"`  // Primary pollutant
+	Pm10     string `json:"pm10"`     // PM10 concentration
+	Pm2p5    string `json:"pm2p5"`    // PM2.5 concentration
+	No2      string `json:"no2"`      // NO2 concentration
+	So2      string `json:"so2"`      // SO2 concentration
+	Co       string `json:"co"`       // CO concentration
+	O3       string `json:"o3"`       // O3 concentration
+}
+
+// AirDailyResponse represents the response from QWeather API for daily air quality forecast
+type AirDailyResponse struct {
+	Code  string     `json:"code"`
+	Daily []AirDaily `json:"daily"`
+}
+
+// AirDaily represents daily air quality forecast
+type AirDaily struct {
+	FxDate   string `json:"fxDate"`   // Forecast date
+	Aqi      string `json:"aqi"`      // Air Quality Index
+	Level    string `json:"level"`    // Air quality level
+	Category string `json:"category"` // Air quality category
+	Primary  string `json:"primary"`  // Primary pollutant
+}
+
+// WarningResponse represents the response from QWeather API for weather warnings
+type WarningResponse struct {
+	Code    string    `json:"code"`
+	Warning []Warning `json:"warning"`
+}
+
+// Warning represents weather warning data
+type Warning struct {
+	ID            string `json:"id"`            // Warning ID
+	Sender        string `json:"sender"`        // Issuing authority
+	PubTime       string `json:"pubTime"`       // Publication time
+	Title         string `json:"title"`         // Warning title
+	StartTime     string `json:"startTime"`     // Warning start time
+	EndTime       string `json:"endTime"`       // Warning end time
+	Status        string `json:"status"`        // Warning status (active/update/cancel)
+	Level         string `json:"level"`         // Warning level
+	Severity      string `json:"severity"`      // Severity level
+	SeverityColor string `json:"severityColor"` // Warning color code
+	Type          string `json:"type"`          // Warning type code
+	TypeName      string `json:"typeName"`      // Warning type name
+	Text          string `json:"text"`          // Warning details
+}

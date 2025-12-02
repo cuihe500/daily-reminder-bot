@@ -10,6 +10,7 @@ import (
 
 	"github.com/cuichanghe/daily-reminder-bot/internal/bot"
 	"github.com/cuichanghe/daily-reminder-bot/internal/config"
+	"github.com/cuichanghe/daily-reminder-bot/internal/migration"
 	"github.com/cuichanghe/daily-reminder-bot/internal/model"
 	"github.com/cuichanghe/daily-reminder-bot/internal/repository"
 	"github.com/cuichanghe/daily-reminder-bot/internal/service"
@@ -54,6 +55,7 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	subRepo := repository.NewSubscriptionRepository(db)
 	todoRepo := repository.NewTodoRepository(db)
+	warningRepo := repository.NewWarningLogRepository(db)
 
 	// Initialize QWeather client
 	qweatherClient := qweather.NewClient(cfg.QWeather.APIKey, cfg.QWeather.BaseURL)
@@ -61,6 +63,7 @@ func main() {
 	// Initialize services
 	weatherSvc := service.NewWeatherService(qweatherClient)
 	todoSvc := service.NewTodoService(todoRepo)
+	airSvc := service.NewAirQualityService(qweatherClient)
 
 	// Initialize AI service
 	var aiSvc *service.AIService
@@ -108,6 +111,9 @@ func main() {
 		logger.Fatal("Failed to create bot", zap.Error(err))
 	}
 
+	// Initialize warning service (needs bot for notifications)
+	warningSvc := service.NewWarningService(qweatherClient, warningRepo, subRepo, teleBot.Bot)
+
 	// Initialize scheduler
 	schedulerSvc, err := service.NewSchedulerService(
 		subRepo,
@@ -115,6 +121,7 @@ func main() {
 		todoSvc,
 		aiSvc,
 		calendarSvc,
+		warningSvc,
 		teleBot.Bot,
 		cfg.Scheduler.Timezone,
 	)
@@ -123,7 +130,7 @@ func main() {
 	}
 
 	// Register handlers
-	handlers := bot.NewHandlers(userRepo, subRepo, todoRepo, weatherSvc, todoSvc)
+	handlers := bot.NewHandlers(userRepo, subRepo, todoRepo, weatherSvc, todoSvc, airSvc, warningSvc)
 	handlers.RegisterHandlers(teleBot.Bot)
 
 	// Start scheduler
@@ -179,8 +186,14 @@ func initDatabase(cfg *config.DatabaseConfig) (*gorm.DB, error) {
 		&model.User{},
 		&model.Subscription{},
 		&model.Todo{},
+		&model.WarningLog{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
+	}
+
+	// Run data migration to multi-subscription model
+	if err := migration.MigrateToMultiSubscription(db); err != nil {
+		return nil, fmt.Errorf("failed to run data migration: %w", err)
 	}
 
 	logger.Info("Database initialized successfully")

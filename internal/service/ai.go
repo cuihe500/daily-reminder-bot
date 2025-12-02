@@ -40,7 +40,8 @@ type ReminderData struct {
 	Weather      *qweather.CurrentWeather
 	LifeIndices  []qweather.LifeIndex
 	Todos        []model.Todo
-	CalendarInfo string // Formatted calendar info including lunar date, festivals, solar terms
+	CalendarInfo string           // Formatted calendar info including lunar date, festivals, solar terms
+	AirQuality   *qweather.AirNow // Air quality data (optional)
 }
 
 // GenerateReminder generates a daily reminder using AI with retry logic
@@ -82,47 +83,86 @@ func (s *AIService) GenerateReminder(ctx context.Context, data ReminderData) (st
 
 // buildSystemPrompt builds the system prompt for AI generation
 func buildSystemPrompt() string {
-	return `你是一个友善的每日提醒助手。你的任务是根据提供的日期、天气数据和待办事项，生成一条温馨、自然的早间提醒消息。
+	return `你是一个友善的每日提醒助手。你的任务是根据提供的日期、天气数据和待办事项，生成一条温馨、自然的提醒消息。
 
 要求：
-1. 开头展示今日日期（公历和农历），如有节日或节气要特别提及
+1. 开头根据现在的时间给予问候（比如早上好、中午好等），展示今日日期（公历和农历），如有节日或节气要特别提及
 2. 如果临近重要节日/假期，给予温馨提示（如"还有X天就放假啦"）
-3. 简洁地总结天气和穿衣建议
-4. 自然地提及今日待办事项
-5. 根据天气和节日给出贴心建议
-6. 保持积极正面的语气
-7. 使用适当的 emoji 增加亲和力
-8. 总长度控制在 350 字以内
-9. 使用中文回复`
+3. 详细解读天气状况：
+   - 重点关注实际温度与体感温度的差异，如果相差较大需特别说明原因（风力、湿度等）
+   - 根据风力等级和风速给出具体影响提示（如3级以上建议注意防风）
+   - 结合湿度说明体感舒适度（如高湿度闷热、低湿度干燥）
+   - 如果天气有特殊情况（高温、低温、大风、高湿度等）需重点提醒
+4. 充分利用生活指数给出实用建议：
+   - 穿衣指数：具体建议穿什么类型的衣物
+   - 紫外线指数：说明是否需要防晒措施
+   - 运动指数：建议适合的运动类型或是否适宜户外活动
+5. 自然地提及今日待办事项，如有多项可按重要程度排序提醒
+6. 根据天气、节日、待办事项的综合情况给出贴心的生活建议
+7. 保持积极正面、温暖友善的语气
+8. 使用适当的 emoji 增加亲和力和可读性
+9. 总长度控制在 350 字以内
+10. 使用中文回复`
 }
 
 // buildUserPrompt builds the user prompt with weather and todo data
 func buildUserPrompt(data ReminderData) string {
-	// Format weather information
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	now := time.Now().In(loc)
+	// Calculate temperature difference for AI analysis
+	tempDiff := ""
+	if data.Weather.Temp != "" && data.Weather.FeelsLike != "" {
+		// Note: This is for display purposes; actual calculation would need parsing
+		tempDiff = fmt.Sprintf("（温差：实际温度与体感温度相差 %s°C - %s°C）", data.Weather.Temp, data.Weather.FeelsLike)
+	}
+
+	// Format weather information with more details
 	weatherInfo := fmt.Sprintf(`城市: %s
 日期: %s
-温度: %s°C (体感 %s°C)
-天气: %s
-湿度: %s%%
-风向: %s %s级`,
+时间: %s
+实际温度: %s°C
+体感温度: %s°C %s
+天气状况: %s
+相对湿度: %s%%
+风向风力: %s %s级 (风速 %s km/h)`,
 		data.City,
 		data.Date,
+		now.Format("15:04"),
 		data.Weather.Temp,
 		data.Weather.FeelsLike,
+		tempDiff,
 		data.Weather.Text,
 		data.Weather.Humidity,
 		data.Weather.WindDir,
 		data.Weather.WindScale,
+		data.Weather.WindSpeed,
 	)
 
-	// Format life indices
+	// Format life indices with more details
 	var indicesInfo string
+	indicesMap := make(map[string]qweather.LifeIndex)
 	for _, idx := range data.LifeIndices {
-		// Filter important indices: sports (1), dressing (3), UV (5)
-		if idx.Type == "1" || idx.Type == "3" || idx.Type == "5" {
-			indicesInfo += fmt.Sprintf("- %s: %s (%s)\n", idx.Name, idx.Category, idx.Text)
+		indicesMap[idx.Type] = idx
+	}
+
+	// Prioritize important indices: dressing (3), UV (5), sports (1)
+	importantTypes := []string{"3", "5", "1"}
+	for _, typ := range importantTypes {
+		if idx, exists := indicesMap[typ]; exists {
+			indicesInfo += fmt.Sprintf("• %s：等级 %s，%s\n  详细建议：%s\n",
+				idx.Name, idx.Level, idx.Category, idx.Text)
 		}
 	}
+
+	// Add other available indices
+	for _, idx := range data.LifeIndices {
+		// Skip already processed indices
+		if idx.Type == "1" || idx.Type == "3" || idx.Type == "5" {
+			continue
+		}
+		indicesInfo += fmt.Sprintf("• %s：%s\n  %s\n", idx.Name, idx.Category, idx.Text)
+	}
+
 	if indicesInfo == "" {
 		indicesInfo = "暂无生活指数数据"
 	}
@@ -135,6 +175,22 @@ func buildUserPrompt(data ReminderData) string {
 		for i, todo := range data.Todos {
 			todosInfo += fmt.Sprintf("%d. %s\n", i+1, todo.Content)
 		}
+	}
+
+	// Format air quality
+	var airQualityInfo string
+	if data.AirQuality != nil {
+		airQualityInfo = fmt.Sprintf(`• AQI：%s
+• 等级：%s
+• 类别：%s`,
+			data.AirQuality.Aqi,
+			data.AirQuality.Level,
+			data.AirQuality.Category)
+		if data.AirQuality.Primary != "" && data.AirQuality.Primary != "NA" {
+			airQualityInfo += fmt.Sprintf("\n• 主要污染物：%s", data.AirQuality.Primary)
+		}
+	} else {
+		airQualityInfo = "暂无空气质量数据"
 	}
 
 	// Format calendar info
@@ -151,9 +207,20 @@ func buildUserPrompt(data ReminderData) string {
 【天气信息】
 %s
 
+【空气质量】
+%s
+
 【生活指数】
 %s
 
 【待办事项】
-%s`, calendarInfo, weatherInfo, indicesInfo, todosInfo)
+%s
+
+请特别注意：
+1. 如果实际温度与体感温度相差较大（≥3°C），请重点说明并解释原因
+2. 根据风速和风力等级判断是否需要提醒防风
+3. 根据湿度水平说明体感舒适度（<30%%干燥，>70%%潮湿闷热）
+4. 根据AQI等级给出健康建议（优：无需特殊措施，良：敏感人群减少户外，轻度污染以上：减少户外活动，佩戴口罩）
+5. 充分利用生活指数的详细建议，给出具体可行的行动指导
+6. 如果有待办事项，要自然地融入提醒中，不要生硬列举`, calendarInfo, weatherInfo, airQualityInfo, indicesInfo, todosInfo)
 }
