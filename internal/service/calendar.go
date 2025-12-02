@@ -7,6 +7,8 @@ import (
 
 	"github.com/cuichanghe/daily-reminder-bot/pkg/calendar"
 	"github.com/cuichanghe/daily-reminder-bot/pkg/holiday"
+	"github.com/cuichanghe/daily-reminder-bot/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // CalendarService provides calendar-related functionality
@@ -28,6 +30,9 @@ func NewCalendarService(timezone *time.Location, holidayClient *holiday.Client) 
 // FormatDateHeader formats the date header with both solar and lunar dates
 // Example: 今天是 2025年1月28日 农历甲辰年腊月廿九
 func (s *CalendarService) FormatDateHeader(date time.Time) string {
+	logger.Debug("FormatDateHeader called",
+		zap.Time("date", date))
+
 	info := s.calculator.GetDateInfo(date)
 
 	// Handle leap month
@@ -36,45 +41,79 @@ func (s *CalendarService) FormatDateHeader(date time.Time) string {
 		monthStr = "闰" + monthStr
 	}
 
-	return fmt.Sprintf("今天是 %d年%d月%d日 农历%s%s%s",
+	result := fmt.Sprintf("今天是 %d年%d月%d日 农历%s%s%s",
 		date.Year(), int(date.Month()), date.Day(),
 		info.LunarYearCN, monthStr, info.LunarDayCN)
+
+	logger.Debug("Date header formatted",
+		zap.String("lunar_year", info.LunarYearCN),
+		zap.String("lunar_month", monthStr),
+		zap.String("lunar_day", info.LunarDayCN))
+
+	return result
 }
 
 // FormatTodaySpecial formats today's special dates (festivals/solar terms)
 // Returns empty string if no special dates
 func (s *CalendarService) FormatTodaySpecial(date time.Time) string {
+	logger.Debug("FormatTodaySpecial called", zap.Time("date", date))
+
 	var specials []string
 
 	// Check today's solar term
 	jieQi := s.calculator.GetTodayJieQi(date)
 	if jieQi != "" {
 		specials = append(specials, jieQi)
+		logger.Debug("Today's solar term found", zap.String("jie_qi", jieQi))
 	}
 
 	// Check today's festivals
 	festivals := s.calculator.GetTodayFestivals(date)
 	specials = append(specials, festivals...)
+	if len(festivals) > 0 {
+		logger.Debug("Today's festivals found", zap.Strings("festivals", festivals))
+	}
 
 	if len(specials) == 0 {
+		logger.Debug("No special dates today")
 		return ""
 	}
 
+	logger.Debug("Special dates formatted",
+		zap.Int("count", len(specials)),
+		zap.Strings("specials", specials))
 	return fmt.Sprintf("【%s】", strings.Join(specials, " | "))
 }
 
 // FormatUpcomingFestivals formats the upcoming festivals countdown
 func (s *CalendarService) FormatUpcomingFestivals(date time.Time, limit int) string {
+	logger.Debug("FormatUpcomingFestivals called",
+		zap.Time("date", date),
+		zap.Int("limit", limit))
+
 	festivals := s.calculator.GetUpcomingFestivals(date, limit+5) // Get extra for filtering
 
 	if len(festivals) == 0 {
+		logger.Debug("No upcoming festivals found")
 		return ""
 	}
+
+	logger.Debug("Upcoming festivals retrieved",
+		zap.Int("count", len(festivals)))
 
 	// Try to get statutory holiday info from API for accurate holiday days
 	var nextStatutory *holiday.StatutoryHoliday
 	if s.holidayClient != nil {
-		nextStatutory, _ = s.holidayClient.GetNextHoliday(date)
+		var err error
+		nextStatutory, err = s.holidayClient.GetNextHoliday(date)
+		if err != nil {
+			logger.Warn("Failed to get next statutory holiday",
+				zap.Error(err))
+		} else if nextStatutory != nil {
+			logger.Debug("Next statutory holiday retrieved",
+				zap.String("name", nextStatutory.Name),
+				zap.Int("days_until", nextStatutory.DaysUntil))
+		}
 	}
 
 	var builder strings.Builder
@@ -122,10 +161,17 @@ func (s *CalendarService) FormatUpcomingFestivals(date time.Time, limit int) str
 
 // GetCalendarInfo returns comprehensive calendar information for AI prompts
 func (s *CalendarService) GetCalendarInfo(date time.Time) *calendar.CalendarInfo {
+	logger.Debug("GetCalendarInfo called", zap.Time("date", date))
+
 	info := s.calculator.GetDateInfo(date)
 	festivals := s.calculator.GetUpcomingFestivals(date, 5)
 	todayFestivals := s.calculator.GetTodayFestivals(date)
 	todayJieQi := s.calculator.GetTodayJieQi(date)
+
+	logger.Debug("Calendar info retrieved",
+		zap.Int("upcoming_festivals", len(festivals)),
+		zap.Int("today_festivals", len(todayFestivals)),
+		zap.String("today_jie_qi", todayJieQi))
 
 	return &calendar.CalendarInfo{
 		DateInfo:          info,
@@ -137,8 +183,11 @@ func (s *CalendarService) GetCalendarInfo(date time.Time) *calendar.CalendarInfo
 
 // FormatCalendarInfoForAI formats calendar information for AI prompts
 func (s *CalendarService) FormatCalendarInfoForAI(date time.Time) string {
+	logger.Debug("FormatCalendarInfoForAI called", zap.Time("date", date))
+
 	info := s.GetCalendarInfo(date)
 	if info == nil || info.DateInfo == nil {
+		logger.Debug("No calendar info available")
 		return ""
 	}
 

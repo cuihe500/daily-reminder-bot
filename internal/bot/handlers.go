@@ -2,13 +2,14 @@ package bot
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
 	"github.com/cuichanghe/daily-reminder-bot/internal/model"
 	"github.com/cuichanghe/daily-reminder-bot/internal/repository"
 	"github.com/cuichanghe/daily-reminder-bot/internal/service"
+	"github.com/cuichanghe/daily-reminder-bot/pkg/logger"
+	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -52,11 +53,14 @@ func (h *Handlers) RegisterHandlers(bot *tele.Bot) {
 // HandleStart handles the /start command
 func (h *Handlers) HandleStart(c tele.Context) error {
 	chatID := c.Sender().ID
+	logger.Debug("Received /start command", zap.Int64("chat_id", chatID))
 
 	// Get or create user
 	_, err := h.userRepo.GetOrCreate(chatID)
 	if err != nil {
-		log.Printf("Error creating user: %v", err)
+		logger.Error("Failed to create user",
+			zap.Int64("chat_id", chatID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
@@ -69,17 +73,23 @@ func (h *Handlers) HandleStart(c tele.Context) error {
 
 使用 /help 查看所有命令`
 
+	logger.Info("User started bot", zap.Int64("chat_id", chatID))
 	return c.Send(message)
 }
 
 // HandleSubscribe handles the /subscribe command
 func (h *Handlers) HandleSubscribe(c tele.Context) error {
 	chatID := c.Sender().ID
+	logger.Debug("Received /subscribe command",
+		zap.Int64("chat_id", chatID),
+		zap.Strings("args", c.Args()))
 
 	// Get or create user
 	user, err := h.userRepo.GetOrCreate(chatID)
 	if err != nil {
-		log.Printf("Error getting user: %v", err)
+		logger.Error("Failed to get user",
+			zap.Int64("chat_id", chatID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
@@ -87,6 +97,9 @@ func (h *Handlers) HandleSubscribe(c tele.Context) error {
 	// Example: /subscribe 北京 08:00
 	args := c.Args()
 	if len(args) < 2 {
+		logger.Debug("Invalid subscribe arguments",
+			zap.Int64("chat_id", chatID),
+			zap.Int("args_count", len(args)))
 		return c.Send("❌ 用法: /subscribe <城市> <时间>\n示例: /subscribe 北京 08:00")
 	}
 
@@ -95,13 +108,19 @@ func (h *Handlers) HandleSubscribe(c tele.Context) error {
 
 	// Validate time format (HH:MM)
 	if !isValidTimeFormat(reminderTime) {
+		logger.Debug("Invalid time format",
+			zap.Int64("chat_id", chatID),
+			zap.String("time", reminderTime))
 		return c.Send("❌ 时间格式错误，请使用 HH:MM 格式（如 08:00）")
 	}
 
 	// Check if user already has a subscription
 	existingSub, err := h.subRepo.FindByUserID(user.ID)
 	if err != nil {
-		log.Printf("Error finding subscription: %v", err)
+		logger.Error("Failed to find subscription",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
@@ -111,9 +130,17 @@ func (h *Handlers) HandleSubscribe(c tele.Context) error {
 		existingSub.ReminderTime = reminderTime
 		existingSub.Active = true
 		if err := h.subRepo.Update(existingSub); err != nil {
-			log.Printf("Error updating subscription: %v", err)
+			logger.Error("Failed to update subscription",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("subscription_id", existingSub.ID),
+				zap.Error(err))
 			return c.Send("抱歉,系统出现错误,请稍后再试。")
 		}
+		logger.Info("Subscription updated",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("subscription_id", existingSub.ID),
+			zap.String("city", city),
+			zap.String("reminder_time", reminderTime))
 	} else {
 		// Create new subscription
 		sub := &model.Subscription{
@@ -123,9 +150,17 @@ func (h *Handlers) HandleSubscribe(c tele.Context) error {
 			Active:       true,
 		}
 		if err := h.subRepo.Create(sub); err != nil {
-			log.Printf("Error creating subscription: %v", err)
+			logger.Error("Failed to create subscription",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("user_id", user.ID),
+				zap.Error(err))
 			return c.Send("抱歉,系统出现错误,请稍后再试。")
 		}
+		logger.Info("Subscription created",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID),
+			zap.String("city", city),
+			zap.String("reminder_time", reminderTime))
 	}
 
 	return c.Send(fmt.Sprintf("✅ 订阅成功！\n📍 城市：%s\n⏰ 时间：%s\n\n每天将在该时间为您推送天气和待办提醒。", city, reminderTime))
@@ -134,63 +169,97 @@ func (h *Handlers) HandleSubscribe(c tele.Context) error {
 // HandleMyStatus handles the /mystatus command
 func (h *Handlers) HandleMyStatus(c tele.Context) error {
 	chatID := c.Sender().ID
+	logger.Debug("Received /mystatus command", zap.Int64("chat_id", chatID))
 
 	user, err := h.userRepo.GetOrCreate(chatID)
 	if err != nil {
-		log.Printf("Error getting user: %v", err)
+		logger.Error("Failed to get user",
+			zap.Int64("chat_id", chatID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
 	sub, err := h.subRepo.FindByUserID(user.ID)
 	if err != nil {
-		log.Printf("Error finding subscription: %v", err)
+		logger.Error("Failed to find subscription",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
 	if sub == nil || !sub.Active {
+		logger.Debug("No active subscription found",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID))
 		return c.Send("📭 您当前没有订阅每日提醒\n\n使用 /subscribe <城市> <时间> 开始订阅")
 	}
 
+	logger.Debug("Subscription status queried",
+		zap.Int64("chat_id", chatID),
+		zap.Uint("subscription_id", sub.ID),
+		zap.String("city", sub.City),
+		zap.String("reminder_time", sub.ReminderTime))
 	return c.Send(fmt.Sprintf("📬 您的订阅状态\n\n📍 城市：%s\n⏰ 提醒时间：%s\n✅ 状态：已激活\n\n使用 /unsubscribe 可以取消订阅", sub.City, sub.ReminderTime))
 }
 
 // HandleUnsubscribe handles the /unsubscribe command
 func (h *Handlers) HandleUnsubscribe(c tele.Context) error {
 	chatID := c.Sender().ID
+	logger.Debug("Received /unsubscribe command", zap.Int64("chat_id", chatID))
 
 	user, err := h.userRepo.GetOrCreate(chatID)
 	if err != nil {
-		log.Printf("Error getting user: %v", err)
+		logger.Error("Failed to get user",
+			zap.Int64("chat_id", chatID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
 	sub, err := h.subRepo.FindByUserID(user.ID)
 	if err != nil {
-		log.Printf("Error finding subscription: %v", err)
+		logger.Error("Failed to find subscription",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
 	if sub == nil || !sub.Active {
+		logger.Debug("No active subscription to unsubscribe",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID))
 		return c.Send("📭 您当前没有订阅每日提醒")
 	}
 
 	sub.Active = false
 	if err := h.subRepo.Update(sub); err != nil {
-		log.Printf("Error updating subscription: %v", err)
+		logger.Error("Failed to update subscription",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("subscription_id", sub.ID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
+	logger.Info("Subscription cancelled",
+		zap.Int64("chat_id", chatID),
+		zap.Uint("subscription_id", sub.ID))
 	return c.Send("✅ 已成功取消订阅\n\n使用 /subscribe <城市> <时间> 可以重新订阅")
 }
 
 // HandleWeather handles the /weather command
 func (h *Handlers) HandleWeather(c tele.Context) error {
 	chatID := c.Sender().ID
+	logger.Debug("Received /weather command",
+		zap.Int64("chat_id", chatID),
+		zap.Strings("args", c.Args()))
 
 	// Get user
 	user, err := h.userRepo.GetOrCreate(chatID)
 	if err != nil {
-		log.Printf("Error getting user: %v", err)
+		logger.Error("Failed to get user",
+			zap.Int64("chat_id", chatID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
@@ -199,48 +268,76 @@ func (h *Handlers) HandleWeather(c tele.Context) error {
 	args := c.Args()
 	if len(args) > 0 {
 		city = args[0]
+		logger.Debug("City from args", zap.String("city", city))
 	} else {
 		// Try to get from subscription
 		sub, err := h.subRepo.FindByUserID(user.ID)
 		if err != nil {
-			log.Printf("Error finding subscription: %v", err)
+			logger.Error("Failed to find subscription",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("user_id", user.ID),
+				zap.Error(err))
 			return c.Send("抱歉,系统出现错误,请稍后再试。")
 		}
 		if sub == nil {
+			logger.Debug("No subscription found for weather query",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("user_id", user.ID))
 			return c.Send("❌ 请指定城市或先使用 /subscribe 订阅\n用法: /weather <城市>")
 		}
 		city = sub.City
+		logger.Debug("City from subscription", zap.String("city", city))
 	}
 
 	// Get weather report
 	report, err := h.weatherSvc.GetWeatherReport(city)
 	if err != nil {
-		log.Printf("Error getting weather: %v", err)
+		logger.Error("Failed to get weather report",
+			zap.Int64("chat_id", chatID),
+			zap.String("city", city),
+			zap.Error(err))
 		return c.Send(fmt.Sprintf("❌ 无法获取 %s 的天气信息，请检查城市名称是否正确。", city))
 	}
 
+	logger.Info("Weather report sent",
+		zap.Int64("chat_id", chatID),
+		zap.String("city", city))
 	return c.Send(report)
 }
 
 // HandleTodo handles the /todo command
 func (h *Handlers) HandleTodo(c tele.Context) error {
 	chatID := c.Sender().ID
+	logger.Debug("Received /todo command",
+		zap.Int64("chat_id", chatID),
+		zap.Strings("args", c.Args()))
 
 	// Get user
 	user, err := h.userRepo.GetOrCreate(chatID)
 	if err != nil {
-		log.Printf("Error getting user: %v", err)
+		logger.Error("Failed to get user",
+			zap.Int64("chat_id", chatID),
+			zap.Error(err))
 		return c.Send("抱歉,系统出现错误,请稍后再试。")
 	}
 
 	args := c.Args()
 	if len(args) == 0 {
 		// List all todos
+		logger.Debug("Listing todos",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID))
 		todos, err := h.todoSvc.GetUserTodos(user.ID)
 		if err != nil {
-			log.Printf("Error getting todos: %v", err)
+			logger.Error("Failed to get todos",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("user_id", user.ID),
+				zap.Error(err))
 			return c.Send("抱歉,系统出现错误,请稍后再试。")
 		}
+		logger.Debug("Todos retrieved",
+			zap.Int64("chat_id", chatID),
+			zap.Int("count", len(todos)))
 		return c.Send(h.todoSvc.FormatTodoList(todos))
 	}
 
@@ -248,50 +345,90 @@ func (h *Handlers) HandleTodo(c tele.Context) error {
 	switch action {
 	case "add":
 		if len(args) < 2 {
+			logger.Debug("Invalid todo add arguments",
+				zap.Int64("chat_id", chatID))
 			return c.Send("❌ 用法: /todo add <内容>")
 		}
 		content := strings.Join(args[1:], " ")
 		if err := h.todoSvc.AddTodo(user.ID, content); err != nil {
-			log.Printf("Error adding todo: %v", err)
+			logger.Error("Failed to add todo",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("user_id", user.ID),
+				zap.String("content", content),
+				zap.Error(err))
 			return c.Send("抱歉,系统出现错误,请稍后再试。")
 		}
+		logger.Info("Todo added",
+			zap.Int64("chat_id", chatID),
+			zap.Uint("user_id", user.ID),
+			zap.String("content", content))
 		return c.Send("✅ 待办事项已添加")
 
 	case "done":
 		if len(args) < 2 {
+			logger.Debug("Invalid todo done arguments",
+				zap.Int64("chat_id", chatID))
 			return c.Send("❌ 用法: /todo done <编号>")
 		}
 		id, err := strconv.Atoi(args[1])
 		if err != nil {
+			logger.Debug("Invalid todo ID format",
+				zap.Int64("chat_id", chatID),
+				zap.String("id_str", args[1]))
 			return c.Send("❌ 编号必须是数字")
 		}
 		if err := h.todoSvc.CompleteTodo(uint(id), user.ID); err != nil {
-			log.Printf("Error completing todo: %v", err)
+			logger.Error("Failed to complete todo",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("user_id", user.ID),
+				zap.Int("todo_id", id),
+				zap.Error(err))
 			return c.Send("❌ 无法完成该待办事项，请检查编号是否正确")
 		}
+		logger.Info("Todo completed",
+			zap.Int64("chat_id", chatID),
+			zap.Int("todo_id", id))
 		return c.Send("✅ 待办事项已完成")
 
 	case "delete", "del":
 		if len(args) < 2 {
+			logger.Debug("Invalid todo delete arguments",
+				zap.Int64("chat_id", chatID))
 			return c.Send("❌ 用法: /todo delete <编号>")
 		}
 		id, err := strconv.Atoi(args[1])
 		if err != nil {
+			logger.Debug("Invalid todo ID format",
+				zap.Int64("chat_id", chatID),
+				zap.String("id_str", args[1]))
 			return c.Send("❌ 编号必须是数字")
 		}
 		if err := h.todoSvc.DeleteTodo(uint(id), user.ID); err != nil {
-			log.Printf("Error deleting todo: %v", err)
+			logger.Error("Failed to delete todo",
+				zap.Int64("chat_id", chatID),
+				zap.Uint("user_id", user.ID),
+				zap.Int("todo_id", id),
+				zap.Error(err))
 			return c.Send("❌ 无法删除该待办事项，请检查编号是否正确")
 		}
+		logger.Info("Todo deleted",
+			zap.Int64("chat_id", chatID),
+			zap.Int("todo_id", id))
 		return c.Send("✅ 待办事项已删除")
 
 	default:
+		logger.Debug("Unknown todo action",
+			zap.Int64("chat_id", chatID),
+			zap.String("action", action))
 		return c.Send("❌ 未知操作\n用法:\n/todo - 列出所有待办\n/todo add <内容> - 添加待办\n/todo done <编号> - 完成待办\n/todo delete <编号> - 删除待办")
 	}
 }
 
 // HandleHelp handles the /help command
 func (h *Handlers) HandleHelp(c tele.Context) error {
+	chatID := c.Sender().ID
+	logger.Debug("Received /help command", zap.Int64("chat_id", chatID))
+
 	message := `📖 命令帮助
 
 /start - 开始使用机器人

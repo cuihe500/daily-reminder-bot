@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/cuichanghe/daily-reminder-bot/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // StatutoryHoliday represents a statutory holiday with vacation days
@@ -86,27 +89,51 @@ func NewClient(baseURL string, cacheTTL time.Duration) *Client {
 func (c *Client) GetNextHoliday(date time.Time) (*StatutoryHoliday, error) {
 	dateStr := date.Format("2006-01-02")
 	cacheKey := fmt.Sprintf("next_%s", dateStr)
+	logger.Debug("Holiday.GetNextHoliday called", zap.String("date", dateStr))
+	start := time.Now()
 
 	// Check cache
 	if cached := c.getFromCache(cacheKey); cached != nil {
 		if h, ok := cached.(*StatutoryHoliday); ok {
+			logger.Debug("Cache hit for next holiday",
+				zap.String("date", dateStr),
+				zap.String("holiday_name", h.Name))
 			return h, nil
 		}
 	}
 
 	url := fmt.Sprintf("%s/api/holiday/next/%s", c.baseURL, dateStr)
+	logger.Debug("Sending HTTP request",
+		zap.String("url", url),
+		zap.String("method", "GET"))
+
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
+		logger.Error("HTTP request failed",
+			zap.String("url", url),
+			zap.Error(err),
+			zap.Duration("duration", time.Since(start)))
 		return nil, fmt.Errorf("failed to get next holiday: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	logger.Debug("HTTP response received",
+		zap.Int("status_code", resp.StatusCode),
+		zap.Duration("duration", time.Since(start)))
+
 	var apiResp NextHolidayResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		logger.Error("Failed to decode response",
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	logger.Debug("Holiday API response",
+		zap.Int("code", apiResp.Code))
+
 	if apiResp.Code != 0 || apiResp.Holiday == nil {
+		logger.Warn("Holiday API error",
+			zap.Int("api_code", apiResp.Code))
 		return nil, fmt.Errorf("API returned error code: %d", apiResp.Code)
 	}
 
@@ -121,33 +148,61 @@ func (c *Client) GetNextHoliday(date time.Time) (*StatutoryHoliday, error) {
 	// Cache the result
 	c.setCache(cacheKey, holiday)
 
+	logger.Debug("Next holiday retrieved",
+		zap.String("holiday_name", holiday.Name),
+		zap.Int("days_until", holiday.DaysUntil),
+		zap.Duration("duration", time.Since(start)))
 	return holiday, nil
 }
 
 // GetYearHolidays retrieves all statutory holidays for a given year
 func (c *Client) GetYearHolidays(year int) ([]StatutoryHoliday, error) {
 	cacheKey := fmt.Sprintf("year_%d", year)
+	logger.Debug("Holiday.GetYearHolidays called", zap.Int("year", year))
+	start := time.Now()
 
 	// Check cache
 	if cached := c.getFromCache(cacheKey); cached != nil {
 		if h, ok := cached.([]StatutoryHoliday); ok {
+			logger.Debug("Cache hit for year holidays",
+				zap.Int("year", year),
+				zap.Int("count", len(h)))
 			return h, nil
 		}
 	}
 
 	url := fmt.Sprintf("%s/api/holiday/year/%d", c.baseURL, year)
+	logger.Debug("Sending HTTP request",
+		zap.String("url", url),
+		zap.String("method", "GET"))
+
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
+		logger.Error("HTTP request failed",
+			zap.String("url", url),
+			zap.Error(err),
+			zap.Duration("duration", time.Since(start)))
 		return nil, fmt.Errorf("failed to get year holidays: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	logger.Debug("HTTP response received",
+		zap.Int("status_code", resp.StatusCode),
+		zap.Duration("duration", time.Since(start)))
+
 	var apiResp YearHolidaysResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		logger.Error("Failed to decode response",
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	logger.Debug("Holiday API response",
+		zap.Int("code", apiResp.Code))
+
 	if apiResp.Code != 0 {
+		logger.Warn("Holiday API error",
+			zap.Int("api_code", apiResp.Code))
 		return nil, fmt.Errorf("API returned error code: %d", apiResp.Code)
 	}
 
@@ -168,29 +223,57 @@ func (c *Client) GetYearHolidays(year int) ([]StatutoryHoliday, error) {
 	// Cache the result
 	c.setCache(cacheKey, holidays)
 
+	logger.Debug("Year holidays retrieved",
+		zap.Int("year", year),
+		zap.Int("count", len(holidays)),
+		zap.Duration("duration", time.Since(start)))
 	return holidays, nil
 }
 
 // GetDateInfo retrieves holiday information for a specific date
 func (c *Client) GetDateInfo(date time.Time) (*HolidayData, *HolidayTypeData, error) {
 	dateStr := date.Format("2006-01-02")
+	logger.Debug("Holiday.GetDateInfo called", zap.String("date", dateStr))
+	start := time.Now()
+
 	url := fmt.Sprintf("%s/api/holiday/info/%s", c.baseURL, dateStr)
+	logger.Debug("Sending HTTP request",
+		zap.String("url", url),
+		zap.String("method", "GET"))
 
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
+		logger.Error("HTTP request failed",
+			zap.String("url", url),
+			zap.Error(err),
+			zap.Duration("duration", time.Since(start)))
 		return nil, nil, fmt.Errorf("failed to get date info: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	logger.Debug("HTTP response received",
+		zap.Int("status_code", resp.StatusCode),
+		zap.Duration("duration", time.Since(start)))
+
 	var apiResp APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		logger.Error("Failed to decode response",
+			zap.Error(err))
 		return nil, nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	logger.Debug("Holiday API response",
+		zap.Int("code", apiResp.Code))
+
 	if apiResp.Code != 0 {
+		logger.Warn("Holiday API error",
+			zap.Int("api_code", apiResp.Code))
 		return nil, nil, fmt.Errorf("API returned error code: %d", apiResp.Code)
 	}
 
+	logger.Debug("Date info retrieved",
+		zap.String("date", dateStr),
+		zap.Duration("duration", time.Since(start)))
 	return apiResp.Holiday, apiResp.Type, nil
 }
 

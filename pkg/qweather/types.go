@@ -33,6 +33,43 @@ type LifeIndex struct {
 	Text     string `json:"text"`     // Detailed advice
 }
 
+// DailyForecastResponse represents the response from QWeather API for daily forecast
+type DailyForecastResponse struct {
+	Code  string          `json:"code"`
+	Daily []DailyForecast `json:"daily"`
+}
+
+// DailyForecast represents daily weather forecast data
+type DailyForecast struct {
+	FxDate         string `json:"fxDate"`         // Forecast date
+	Sunrise        string `json:"sunrise"`        // Sunrise time
+	Sunset         string `json:"sunset"`         // Sunset time
+	Moonrise       string `json:"moonrise"`       // Moonrise time
+	Moonset        string `json:"moonset"`        // Moonset time
+	MoonPhase      string `json:"moonPhase"`      // Moon phase
+	MoonPhaseIcon  string `json:"moonPhaseIcon"`  // Moon phase icon
+	TempMax        string `json:"tempMax"`        // Maximum temperature
+	TempMin        string `json:"tempMin"`        // Minimum temperature
+	IconDay        string `json:"iconDay"`        // Daytime weather icon
+	TextDay        string `json:"textDay"`        // Daytime weather description
+	IconNight      string `json:"iconNight"`      // Nighttime weather icon
+	TextNight      string `json:"textNight"`      // Nighttime weather description
+	Wind360Day     string `json:"wind360Day"`     // Daytime wind direction in degrees
+	WindDirDay     string `json:"windDirDay"`     // Daytime wind direction
+	WindScaleDay   string `json:"windScaleDay"`   // Daytime wind scale
+	WindSpeedDay   string `json:"windSpeedDay"`   // Daytime wind speed km/h
+	Wind360Night   string `json:"wind360Night"`   // Nighttime wind direction in degrees
+	WindDirNight   string `json:"windDirNight"`   // Nighttime wind direction
+	WindScaleNight string `json:"windScaleNight"` // Nighttime wind scale
+	WindSpeedNight string `json:"windSpeedNight"` // Nighttime wind speed km/h
+	Humidity       string `json:"humidity"`       // Relative humidity
+	Precip         string `json:"precip"`         // Precipitation amount mm
+	Pressure       string `json:"pressure"`       // Atmospheric pressure hPa
+	Vis            string `json:"vis"`            // Visibility km
+	Cloud          string `json:"cloud"`          // Cloud cover percentage
+	UvIndex        string `json:"uvIndex"`        // UV index
+}
+
 // GeoLocationResponse represents the response from QWeather GeoAPI
 type GeoLocationResponse struct {
 	Code     string        `json:"code"`
