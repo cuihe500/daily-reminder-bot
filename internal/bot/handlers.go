@@ -389,8 +389,8 @@ func (h *Handlers) HandleWeather(c tele.Context) error {
 		}
 	}
 
-	// Get weather report
-	report, err := h.weatherSvc.GetWeatherReport(city)
+	// Get full weather report with warnings and air quality
+	report, err := h.weatherSvc.GetFullWeatherReport(city, h.airSvc, h.warningSvc)
 	if err != nil {
 		logger.Error("Failed to get weather report",
 			zap.Int64("chat_id", chatID),
@@ -578,9 +578,20 @@ func (h *Handlers) HandleHelp(c tele.Context) error {
   💡 不指定城市时，单订阅直接取消，多订阅需选择
 
 ☁️ 天气查询
-/weather [城市] - 查询天气
+/weather [城市] - 查询综合天气报告（含预警和空气质量）
   示例: /weather 上海
   💡 不指定城市时使用第一个订阅
+
+🌫️ 空气质量
+/air [城市] - 查询空气质量详情
+  示例: /air 北京
+  💡 包含 AQI、污染物浓度、未来预报
+
+⚠️ 天气预警
+/warning [城市] - 查询当前天气预警
+  示例: /warning 深圳
+/warning_toggle - 开启/关闭预警主动推送
+  💡 开启后会自动推送所订阅城市的新预警
 
 📝 待办事项（按城市分组）
 /todo - 列出所有待办

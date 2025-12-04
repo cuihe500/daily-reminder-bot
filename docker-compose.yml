@@ -1,0 +1,95 @@
+# Docker Compose configuration for Daily Reminder Bot
+# Usage:
+#   1. Copy this file or use directly
+#   2. Create a .env file with your configuration (see env.example)
+#   3. Run: docker-compose up -d
+
+services:
+  daily-reminder-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: daily-reminder-bot
+    restart: unless-stopped
+    
+    # Environment variables - Required
+    environment:
+      # Telegram Configuration (REQUIRED)
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_API_ENDPOINT=${TELEGRAM_API_ENDPOINT:-https://api.telegram.org}
+      
+      # QWeather Configuration (REQUIRED)
+      - QWEATHER_AUTH_MODE=${QWEATHER_AUTH_MODE:-jwt}
+      - QWEATHER_PRIVATE_KEY=${QWEATHER_PRIVATE_KEY:-}
+      - QWEATHER_KEY_ID=${QWEATHER_KEY_ID}
+      - QWEATHER_PROJECT_ID=${QWEATHER_PROJECT_ID}
+      - QWEATHER_API_KEY=${QWEATHER_API_KEY:-}
+      - QWEATHER_BASE_URL=${QWEATHER_BASE_URL}
+      
+      # OpenAI Configuration (Optional)
+      - OPENAI_ENABLED=${OPENAI_ENABLED:-false}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_MAX_TOKENS=${OPENAI_MAX_TOKENS:-800}
+      - OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.7}
+      - OPENAI_TIMEOUT=${OPENAI_TIMEOUT:-30}
+      - OPENAI_MAX_RETRIES=${OPENAI_MAX_RETRIES:-3}
+      
+      # Holiday API Configuration (Optional)
+      - HOLIDAY_API_URL=${HOLIDAY_API_URL:-}
+      - HOLIDAY_CACHE_TTL=${HOLIDAY_CACHE_TTL:-86400}
+      
+      # Database Configuration
+      - DATABASE_TYPE=${DATABASE_TYPE:-sqlite}
+      - DATABASE_PATH=${DATABASE_PATH:-/app/data/bot.db}
+      - DATABASE_HOST=${DATABASE_HOST:-mysql}
+      - DATABASE_PORT=${DATABASE_PORT:-3306}
+      - DATABASE_USER=${DATABASE_USER:-root}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-}
+      - DATABASE_NAME=${DATABASE_NAME:-daily_reminder_bot}
+      - DATABASE_CHARSET=${DATABASE_CHARSET:-utf8mb4}
+      
+      # Scheduler Configuration
+      - SCHEDULER_TIMEZONE=${SCHEDULER_TIMEZONE:-Asia/Shanghai}
+      
+      # Logger Configuration
+      - LOGGER_LEVEL=${LOGGER_LEVEL:-info}
+      - LOGGER_FORMAT=${LOGGER_FORMAT:-json}
+    
+    # Persist data
+    volumes:
+      - bot-data:/app/data
+      - bot-configs:/app/configs
+    
+    # Logging configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: MySQL database (uncomment if using MySQL instead of SQLite)
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: daily-reminder-mysql
+  #   restart: unless-stopped
+  #   environment:
+  #     - MYSQL_ROOT_PASSWORD=${DATABASE_PASSWORD}
+  #     - MYSQL_DATABASE=${DATABASE_NAME:-daily_reminder_bot}
+  #     - MYSQL_CHARSET=utf8mb4
+  #   volumes:
+  #     - mysql-data:/var/lib/mysql
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
+
+volumes:
+  bot-data:
+    name: daily-reminder-bot-data
+  bot-configs:
+    name: daily-reminder-bot-configs
+  # mysql-data:
+  #   name: daily-reminder-mysql-data

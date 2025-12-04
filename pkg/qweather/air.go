@@ -3,6 +3,7 @@ package qweather
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"time"
 
@@ -26,7 +27,7 @@ func (c *Client) GetAirNow(locationID string) (*AirNow, error) {
 		zap.String("url", maskedURL),
 		zap.String("method", "GET"))
 
-	resp, err := c.client.Get(requestURL)
+	resp, err := c.doRequest(requestURL)
 	if err != nil {
 		logger.Error("HTTP request failed",
 			zap.String("url", maskedURL),
@@ -40,10 +41,20 @@ func (c *Client) GetAirNow(locationID string) (*AirNow, error) {
 		zap.Int("status_code", resp.StatusCode),
 		zap.Duration("duration", time.Since(start)))
 
+	// Read and log response body for debugging
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Error("Failed to read response body", zap.Error(err))
+		return nil, fmt.Errorf("failed to read air quality response: %w", err)
+	}
+	logger.Debug("Air quality raw response",
+		zap.String("body", string(bodyBytes)))
+
 	var airResp AirNowResponse
-	if err := json.NewDecoder(resp.Body).Decode(&airResp); err != nil {
+	if err := json.Unmarshal(bodyBytes, &airResp); err != nil {
 		logger.Error("Failed to decode response",
-			zap.Error(err))
+			zap.Error(err),
+			zap.String("body", string(bodyBytes)))
 		return nil, fmt.Errorf("failed to decode air quality response: %w", err)
 	}
 
@@ -81,7 +92,7 @@ func (c *Client) GetAirDaily(locationID string) ([]AirDaily, error) {
 		zap.String("url", maskedURL),
 		zap.String("method", "GET"))
 
-	resp, err := c.client.Get(requestURL)
+	resp, err := c.doRequest(requestURL)
 	if err != nil {
 		logger.Error("HTTP request failed",
 			zap.String("url", maskedURL),
@@ -95,10 +106,18 @@ func (c *Client) GetAirDaily(locationID string) ([]AirDaily, error) {
 		zap.Int("status_code", resp.StatusCode),
 		zap.Duration("duration", time.Since(start)))
 
+	// Read response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Error("Failed to read response body", zap.Error(err))
+		return nil, fmt.Errorf("failed to read air quality forecast response: %w", err)
+	}
+
 	var airResp AirDailyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&airResp); err != nil {
+	if err := json.Unmarshal(bodyBytes, &airResp); err != nil {
 		logger.Error("Failed to decode response",
-			zap.Error(err))
+			zap.Error(err),
+			zap.String("body", string(bodyBytes)))
 		return nil, fmt.Errorf("failed to decode air quality forecast response: %w", err)
 	}
 

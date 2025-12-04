@@ -37,8 +37,12 @@ type TelegramConfig struct {
 
 // QWeatherConfig holds QWeather API configuration
 type QWeatherConfig struct {
-	APIKey  string `mapstructure:"api_key"`
-	BaseURL string `mapstructure:"base_url"`
+	AuthMode       string `mapstructure:"auth_mode"`        // "jwt" or "api_key"
+	APIKey         string `mapstructure:"api_key"`          // API Key (for api_key mode)
+	PrivateKeyPath string `mapstructure:"private_key_path"` // Ed25519 private key file path (for jwt mode)
+	KeyID          string `mapstructure:"key_id"`           // Credential ID from QWeather console (for jwt mode)
+	ProjectID      string `mapstructure:"project_id"`       // Project ID from QWeather console (for jwt mode)
+	BaseURL        string `mapstructure:"base_url"`
 }
 
 // DatabaseConfig holds database configuration

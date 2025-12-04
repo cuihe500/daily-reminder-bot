@@ -165,24 +165,54 @@ func (s *WarningService) checkCityWarnings(ctx context.Context, city string, sub
 		return fmt.Errorf("failed to get location ID for %s: %w", city, err)
 	}
 
-	// Get current warnings
-	warnings, err := s.client.GetWarningNow(locationID)
+	// Get current warnings from API
+	currentWarnings, err := s.client.GetWarningNow(locationID)
 	if err != nil {
 		return fmt.Errorf("failed to get warnings for %s: %w", city, err)
 	}
 
-	if len(warnings) == 0 {
-		logger.Debug("No warnings for city", zap.String("city", city))
-		return nil
+	// Build a map of current warning IDs for quick lookup
+	currentWarningIDs := make(map[string]bool)
+	for _, w := range currentWarnings {
+		currentWarningIDs[w.ID] = true
 	}
 
-	// Process each warning
-	for _, warning := range warnings {
+	// Process each current warning (handles NEW and MODIFIED scenarios)
+	for _, warning := range currentWarnings {
 		if err := s.processWarning(ctx, city, locationID, warning, subs); err != nil {
 			logger.Warn("Failed to process warning",
 				zap.String("warning_id", warning.ID),
 				zap.Error(err))
 			// Continue with other warnings
+		}
+	}
+
+	// Check for DELETED warnings (previously existed but no longer in API response)
+	previousWarnings, err := s.warningRepo.GetUnresolvedWarningsByCity(city)
+	if err != nil {
+		logger.Warn("Failed to get previous warnings for city",
+			zap.String("city", city),
+			zap.Error(err))
+		return nil // Non-fatal, continue
+	}
+
+	for _, prevWarning := range previousWarnings {
+		if !currentWarningIDs[prevWarning.WarningID] {
+			// This warning has disappeared from API - it has been resolved/lifted
+			logger.Info("Warning resolved (no longer in API)",
+				zap.String("city", city),
+				zap.String("warning_id", prevWarning.WarningID),
+				zap.String("title", prevWarning.Title))
+
+			// Send notification about resolved warning
+			s.sendResolvedNotification(city, prevWarning, subs)
+
+			// Mark as resolved in database
+			if err := s.warningRepo.MarkWarningResolved(prevWarning.WarningID); err != nil {
+				logger.Warn("Failed to mark warning as resolved",
+					zap.String("warning_id", prevWarning.WarningID),
+					zap.Error(err))
+			}
 		}
 	}
 
@@ -203,11 +233,15 @@ func (s *WarningService) processWarning(
 		return fmt.Errorf("failed to check warning log: %w", err)
 	}
 
-	// If this is a new warning or updated warning, send notification
+	// Determine if we should notify users
+	// Scenarios: NEW warning, STATUS changed, LEVEL changed, or TITLE changed
 	shouldNotify := false
+	var changeReason string
+
 	if existingLog == nil {
-		// New warning
+		// NEW warning
 		shouldNotify = true
+		changeReason = "new"
 		logger.Info("New warning detected",
 			zap.String("city", city),
 			zap.String("warning_id", warning.ID),
@@ -215,11 +249,30 @@ func (s *WarningService) processWarning(
 	} else if existingLog.Status != warning.Status {
 		// Status changed (e.g., active -> update or cancel)
 		shouldNotify = true
+		changeReason = "status_changed"
 		logger.Info("Warning status changed",
 			zap.String("city", city),
 			zap.String("warning_id", warning.ID),
 			zap.String("old_status", existingLog.Status),
 			zap.String("new_status", warning.Status))
+	} else if existingLog.Level != warning.Level {
+		// Level changed (e.g., Yellow -> Orange)
+		shouldNotify = true
+		changeReason = "level_changed"
+		logger.Info("Warning level changed",
+			zap.String("city", city),
+			zap.String("warning_id", warning.ID),
+			zap.String("old_level", existingLog.Level),
+			zap.String("new_level", warning.Level))
+	} else if existingLog.Title != warning.Title {
+		// Title changed (content updated)
+		shouldNotify = true
+		changeReason = "content_changed"
+		logger.Info("Warning content changed",
+			zap.String("city", city),
+			zap.String("warning_id", warning.ID),
+			zap.String("old_title", existingLog.Title),
+			zap.String("new_title", warning.Title))
 	}
 
 	if !shouldNotify {
@@ -249,6 +302,7 @@ func (s *WarningService) processWarning(
 
 	logger.Info("Warning notifications sent",
 		zap.String("warning_id", warning.ID),
+		zap.String("change_reason", changeReason),
 		zap.Int("success_count", successCount),
 		zap.Int("total_count", len(subs)))
 
@@ -275,8 +329,10 @@ func (s *WarningService) processWarning(
 			return fmt.Errorf("failed to create warning log: %w", err)
 		}
 	} else {
-		// Update existing log
+		// Update existing log with all changed fields
 		existingLog.Status = warning.Status
+		existingLog.Level = warning.Level
+		existingLog.Title = warning.Title
 		existingLog.NotifiedAt = now
 		if err := s.warningRepo.Update(existingLog); err != nil {
 			return fmt.Errorf("failed to update warning log: %w", err)
@@ -316,6 +372,37 @@ func (s *WarningService) formatWarningMessage(city string, warning qweather.Warn
 	}
 
 	return msg.String()
+}
+
+// sendResolvedNotification notifies users that a warning has been lifted/resolved
+func (s *WarningService) sendResolvedNotification(city string, log model.WarningLog, subs []model.Subscription) {
+	var msg strings.Builder
+	msg.WriteString(fmt.Sprintf("✅ %s 预警解除\n\n", city))
+	msg.WriteString(fmt.Sprintf("📢 %s\n", log.Title))
+	msg.WriteString("该预警已解除，不再有效。\n")
+	msg.WriteString(fmt.Sprintf("\n原预警时间：%s - %s",
+		log.StartTime.Format("2006-01-02 15:04"),
+		log.EndTime.Format("2006-01-02 15:04")))
+
+	message := msg.String()
+
+	successCount := 0
+	for _, sub := range subs {
+		recipient := &tele.User{ID: sub.User.ChatID}
+		if _, err := s.bot.Send(recipient, message); err != nil {
+			logger.Warn("Failed to send resolved notification",
+				zap.Uint("user_id", sub.UserID),
+				zap.Int64("chat_id", sub.User.ChatID),
+				zap.Error(err))
+		} else {
+			successCount++
+		}
+	}
+
+	logger.Info("Resolved notifications sent",
+		zap.String("warning_id", log.WarningID),
+		zap.Int("success_count", successCount),
+		zap.Int("total_count", len(subs)))
 }
 
 // getWarningEmoji returns an emoji based on warning severity color

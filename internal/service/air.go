@@ -25,48 +25,73 @@ func (s *AirQualityService) GetAirQualityReport(city string) (string, error) {
 	logger.Debug("GetAirQualityReport called", zap.String("city", city))
 	start := time.Now()
 
-	// Get location ID
-	logger.Debug("Fetching location ID", zap.String("city", city))
-	locationID, err := s.client.GetLocationID(city)
+	// Get location
+	logger.Debug("Fetching location", zap.String("city", city))
+	location, err := s.client.GetLocation(city)
 	if err != nil {
-		logger.Error("Failed to get location ID",
+		logger.Error("Failed to get location",
 			zap.String("city", city),
 			zap.Error(err),
 			zap.Duration("duration", time.Since(start)))
-		return "", fmt.Errorf("failed to get location ID: %w", err)
+		return "", fmt.Errorf("failed to get location: %w", err)
 	}
-	logger.Debug("Location ID retrieved",
+	logger.Debug("Location retrieved",
 		zap.String("city", city),
-		zap.String("location_id", locationID))
+		zap.String("location_id", location.ID),
+		zap.String("lat", location.Lat),
+		zap.String("lon", location.Lon))
 
-	// Get current air quality
+	// Get current air quality (v1)
 	logger.Debug("Fetching current air quality",
 		zap.String("city", city),
-		zap.String("location_id", locationID))
-	airNow, err := s.client.GetAirNow(locationID)
+		zap.String("lat", location.Lat),
+		zap.String("lon", location.Lon))
+	airResp, err := s.client.GetAirQualityCurrent(location.Lat, location.Lon)
 	if err != nil {
 		logger.Error("Failed to get current air quality",
 			zap.String("city", city),
-			zap.String("location_id", locationID),
 			zap.Error(err),
 			zap.Duration("duration", time.Since(start)))
 		return "", fmt.Errorf("failed to get current air quality: %w", err)
 	}
+
+	// Find primary index (prefer "qaqi" for China, or "us-epa", or first available)
+	var mainIndex qweather.AirQualityIndex
+	foundIndex := false
+	for _, idx := range airResp.Indexes {
+		if idx.Code == "qaqi" {
+			mainIndex = idx
+			foundIndex = true
+			break
+		}
+	}
+	if !foundIndex && len(airResp.Indexes) > 0 {
+		mainIndex = airResp.Indexes[0]
+		foundIndex = true
+	}
+
+	if !foundIndex {
+		logger.Warn("No air quality index found", zap.String("city", city))
+		return "", fmt.Errorf("no air quality index data available")
+	}
+
 	logger.Debug("Current air quality retrieved",
 		zap.String("city", city),
-		zap.String("aqi", airNow.Aqi),
-		zap.String("category", airNow.Category))
+		zap.Float64("aqi", mainIndex.Aqi),
+		zap.String("category", mainIndex.Category))
 
 	// Get air quality forecast (optional, non-critical)
+	// Note: Still using v7 API for forecast as v1 forecast implementation was not requested/planned yet.
+	// We use the location ID from GetLocation for this.
 	var airForecast []qweather.AirDaily
 	logger.Debug("Fetching air quality forecast",
 		zap.String("city", city),
-		zap.String("location_id", locationID))
-	airForecast, err = s.client.GetAirDaily(locationID)
+		zap.String("location_id", location.ID))
+	airForecast, err = s.client.GetAirDaily(location.ID)
 	if err != nil {
 		logger.Warn("Failed to get air quality forecast",
 			zap.String("city", city),
-			zap.String("location_id", locationID),
+			zap.String("location_id", location.ID),
 			zap.Error(err))
 		airForecast = nil // Non-critical, continue without forecast
 	} else {
@@ -81,32 +106,21 @@ func (s *AirQualityService) GetAirQualityReport(city string) (string, error) {
 
 	// Current air quality
 	report.WriteString("🌫️ 当前状况：\n")
-	report.WriteString(fmt.Sprintf("   AQI：%s\n", airNow.Aqi))
-	report.WriteString(fmt.Sprintf("   等级：%s\n", airNow.Level))
-	report.WriteString(fmt.Sprintf("   类别：%s\n", airNow.Category))
-	if airNow.Primary != "" && airNow.Primary != "NA" {
-		report.WriteString(fmt.Sprintf("   主要污染物：%s\n", airNow.Primary))
+	report.WriteString(fmt.Sprintf("   AQI：%.0f\n", mainIndex.Aqi))
+	report.WriteString(fmt.Sprintf("   等级：%s\n", mainIndex.Level))
+	report.WriteString(fmt.Sprintf("   类别：%s\n", mainIndex.Category))
+	if mainIndex.PrimaryPollutant.Name != "" {
+		report.WriteString(fmt.Sprintf("   主要污染物：%s\n", mainIndex.PrimaryPollutant.Name))
 	}
 
 	// Pollutant concentrations
-	report.WriteString("\n💨 污染物浓度：\n")
-	if airNow.Pm2p5 != "" && airNow.Pm2p5 != "0" {
-		report.WriteString(fmt.Sprintf("   PM2.5：%s μg/m³\n", airNow.Pm2p5))
-	}
-	if airNow.Pm10 != "" && airNow.Pm10 != "0" {
-		report.WriteString(fmt.Sprintf("   PM10：%s μg/m³\n", airNow.Pm10))
-	}
-	if airNow.O3 != "" && airNow.O3 != "0" {
-		report.WriteString(fmt.Sprintf("   O3：%s μg/m³\n", airNow.O3))
-	}
-	if airNow.No2 != "" && airNow.No2 != "0" {
-		report.WriteString(fmt.Sprintf("   NO2：%s μg/m³\n", airNow.No2))
-	}
-	if airNow.So2 != "" && airNow.So2 != "0" {
-		report.WriteString(fmt.Sprintf("   SO2：%s μg/m³\n", airNow.So2))
-	}
-	if airNow.Co != "" && airNow.Co != "0" {
-		report.WriteString(fmt.Sprintf("   CO：%s mg/m³\n", airNow.Co))
+	if len(airResp.Pollutants) > 0 {
+		report.WriteString("\n💨 污染物浓度：\n")
+		for _, p := range airResp.Pollutants {
+			if p.Concentration.Value > 0 {
+				report.WriteString(fmt.Sprintf("   %s：%.1f %s\n", p.Name, p.Concentration.Value, p.Concentration.Unit))
+			}
+		}
 	}
 
 	// Forecast (if available, show only next 2 days)

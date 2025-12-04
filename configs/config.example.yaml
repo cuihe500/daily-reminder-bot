@@ -6,8 +6,17 @@ telegram:
   api_endpoint: "https://api.telegram.org" # Optional: Custom Telegram Bot API endpoint
 
 qweather:
+  auth_mode: "jwt"  # Authentication mode: "jwt" (recommended) or "api_key"
+  
+  # JWT authentication (recommended, more secure)
+  private_key_path: "./configs/ed25519-private.pem"  # Ed25519 private key file
+  key_id: "YOUR_KEY_ID"       # Credential ID from QWeather console
+  project_id: "YOUR_PROJECT_ID"  # Project ID from QWeather console
+  
+  # API Key authentication (legacy)
   api_key: "YOUR_QWEATHER_API_KEY"  # Get from https://dev.qweather.com
-  base_url: "https://devapi.qweather.com"
+  
+  base_url: "https://YOUR_API_HOST.qweatherapi.com"  # Your API Host from console
 
 # OpenAI-compatible API configuration
 # Supports OpenAI, DeepSeek, Zhipu (智谱), and other compatible services

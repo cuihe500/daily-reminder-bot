@@ -1,0 +1,42 @@
+# Docker ignore file for Daily Reminder Bot
+
+# Git
+.git
+.gitignore
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build outputs
+build/
+*.exe
+*.out
+bot
+main
+
+# Documentation
+*.md
+!docker-entrypoint.sh
+
+# Config files (generated at runtime)
+configs/config.yaml
+configs/*.pem
+
+# Data files (mounted as volume)
+data/
+
+# Test files
+*_test.go
+coverage.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log

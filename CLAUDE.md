@@ -34,10 +34,12 @@
 ```
 .
 ├── cmd/
-│   └── bot/            # 主程序入口（main.go）
+│   ├── bot/            # 主程序入口（main.go）
+│   └── debug_api/      # API 调试工具
 ├── configs/            # 配置文件
 │   ├── config.example.yaml  # 配置模板
-│   └── config.yaml          # 实际配置（需自行创建）
+│   ├── config.yaml          # 实际配置（需自行创建）
+│   └── ed25519-private.pem  # JWT 私钥（需自行生成）
 ├── data/               # 数据库文件目录
 │   └── bot.db          # SQLite 数据库文件
 ├── build/              # 编译输出目录
@@ -47,17 +49,23 @@
 │   │   └── handlers.go # 命令处理器
 │   ├── config/         # 配置加载
 │   │   └── config.go   # Viper 配置管理
+│   ├── migration/      # 数据库迁移
+│   │   └── migrate.go  # 自动迁移逻辑
 │   ├── model/          # 数据库模型
-│   │   ├── user.go     # 用户模型
-│   │   ├── subscription.go  # 订阅模型
-│   │   └── todo.go     # 待办事项模型
+│   │   ├── user.go         # 用户模型
+│   │   ├── subscription.go # 订阅模型
+│   │   ├── todo.go         # 待办事项模型
+│   │   └── warning_log.go  # 天气预警日志模型
 │   ├── repository/     # 数据访问层
-│   │   ├── user.go     # 用户数据操作
-│   │   ├── subscription.go  # 订阅数据操作
-│   │   └── todo.go     # 待办数据操作
+│   │   ├── user.go         # 用户数据操作
+│   │   ├── subscription.go # 订阅数据操作
+│   │   ├── todo.go         # 待办数据操作
+│   │   └── warning_log.go  # 预警日志操作
 │   └── service/        # 业务逻辑层
 │       ├── scheduler.go    # 定时任务调度
 │       ├── weather.go      # 天气服务
+│       ├── air.go          # 空气质量服务
+│       ├── warning.go      # 天气预警服务
 │       ├── todo.go         # 待办服务
 │       ├── calendar.go     # 日历服务（节气、节日）
 │       └── ai.go           # AI 提醒生成服务
@@ -69,7 +77,7 @@
 │   ├── holiday/        # 假期 API 客户端
 │   │   └── client.go   # 节假日查询客户端
 │   ├── logger/         # 日志系统
-│   │   ├── logger.go   # Zap 日志初始化
+│   │   ├── logger.go       # Zap 日志初始化
 │   │   ├── gorm_adapter.go # GORM 日志适配器
 │   │   └── sanitize.go     # 敏感信息过滤
 │   ├── openai/         # OpenAI 兼容 API 客户端
@@ -77,7 +85,9 @@
 │   │   └── types.go    # 请求/响应类型
 │   └── qweather/       # 和风天气 API 客户端
 │       ├── client.go   # API 客户端
-│       └── types.go    # 天气数据类型
+│       ├── types.go    # 天气数据类型
+│       ├── air.go      # 空气质量 API
+│       └── warning.go  # 天气预警 API
 ├── go.mod              # Go 模块依赖
 ├── go.sum              # 依赖校验和
 ├── Makefile            # 构建脚本
@@ -97,6 +107,9 @@
 - 实时天气查询（和风天气 API）
 - 未来天气预报
 - 生活指数（穿衣、运动、紫外线等）
+- 空气质量查询（AQI、PM2.5、PM10等污染物）
+- 空气质量预报（未来5天）
+- 天气预警信息（极端天气预警）
 - 城市查询支持（支持中文城市名）
 
 ### 4.3 待办事项服务（Todo Service）
@@ -123,7 +136,13 @@
 
 ### 5.1 必需配置
 - `telegram.token`：Telegram Bot Token
-- `qweather.api_key`：和风天气 API Key
+- `telegram.api_endpoint`：Telegram Bot API 端点（可选，默认官方 API）
+- `qweather.auth_mode`：认证模式（jwt 或 api_key）
+- `qweather.private_key_path`：JWT 私钥路径（jwt 模式必需）
+- `qweather.key_id`：凭据 ID（jwt 模式必需）
+- `qweather.project_id`：项目 ID（jwt 模式必需）
+- `qweather.api_key`：和风天气 API Key（api_key 模式必需）
+- `qweather.base_url`：API 基础 URL
 - `database.type`：数据库类型（sqlite 或 mysql）
 - `scheduler.timezone`：时区设置
 
@@ -168,6 +187,9 @@
 
 ### 功能命令
 - `/weather [城市]`：获取即时天气报告（可选城市参数，默认使用订阅城市）
+- `/air [城市]`：获取空气质量信息（AQI、PM2.5 等）
+- `/warning [城市]`：获取天气预警信息
+- `/warning_toggle`：开启/关闭天气预警推送
 - `/todo`：待办事项管理
   - `/todo` - 列出所有待办
   - `/todo add <内容>` - 添加待办
@@ -199,6 +221,21 @@
 - `user_id`：用户 ID（外键）
 - `content`：待办内容
 - `completed`：是否完成
+- `created_at`：创建时间
+- `updated_at`：更新时间
+
+### WarningLog（天气预警日志）
+- `id`：主键
+- `warning_id`：和风天气预警 ID（唯一索引）
+- `location_id`：位置 ID
+- `city`：城市名称
+- `type`：预警类型
+- `level`：预警级别
+- `title`：预警标题
+- `start_time`：预警开始时间
+- `end_time`：预警结束时间
+- `status`：预警状态（active/update/cancel）
+- `notified_at`：通知发送时间
 - `created_at`：创建时间
 - `updated_at`：更新时间
 

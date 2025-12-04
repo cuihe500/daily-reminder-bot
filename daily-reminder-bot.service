@@ -1,0 +1,87 @@
+# systemd service file for Daily Reminder Bot
+# 
+# 安装步骤：
+# 1. 复制此文件到 /etc/systemd/system/
+#    sudo cp daily-reminder-bot.service /etc/systemd/system/
+# 
+# 2. 编辑服务文件，修改以下内容：
+#    - User: 运行服务的用户
+#    - Group: 运行服务的用户组
+#    - WorkingDirectory: 应用程序目录
+#    - ExecStart: 二进制文件和配置文件的实际路径
+#
+# 3. 重新加载 systemd 配置
+#    sudo systemctl daemon-reload
+#
+# 4. 启动服务
+#    sudo systemctl start daily-reminder-bot
+#
+# 5. 设置开机自启
+#    sudo systemctl enable daily-reminder-bot
+#
+# 6. 查看服务状态
+#    sudo systemctl status daily-reminder-bot
+#
+# 7. 查看日志
+#    sudo journalctl -u daily-reminder-bot -f
+
+[Unit]
+Description=Daily Reminder Telegram Bot
+Documentation=https://github.com/cuihe500/daily-reminder-bot
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+# 服务类型：simple（默认）
+Type=simple
+
+# 运行用户和用户组（请根据实际情况修改）
+User=nobody
+Group=nogroup
+
+# 工作目录（请根据实际安装位置修改）
+WorkingDirectory=/opt/daily-reminder-bot
+
+# 启动命令
+ExecStart=/opt/daily-reminder-bot/daily-reminder-bot -config /opt/daily-reminder-bot/configs/config.yaml
+
+# 重启策略
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# 环境变量（如需要可取消注释并配置）
+# Environment="GIN_MODE=release"
+# EnvironmentFile=/opt/daily-reminder-bot/.env
+
+# 安全设置
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# 允许读写的目录（数据库和配置文件目录）
+ReadWritePaths=/opt/daily-reminder-bot/data
+ReadOnlyPaths=/opt/daily-reminder-bot/configs
+
+# 日志设置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=daily-reminder-bot
+
+# 超时设置
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# 资源限制（可选，根据需要调整）
+# LimitNOFILE=65535
+# MemoryMax=256M
+# CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

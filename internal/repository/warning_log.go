@@ -124,3 +124,48 @@ func (r *WarningLogRepository) GetActiveWarningsByLocationID(locationID string) 
 		zap.Int("count", len(logs)))
 	return logs, nil
 }
+
+// GetUnresolvedWarningsByCity retrieves all unresolved warnings for a city
+// Unresolved means status is not 'resolved' (i.e., 'active' or 'update')
+func (r *WarningLogRepository) GetUnresolvedWarningsByCity(city string) ([]model.WarningLog, error) {
+	logger.Debug("WarningLogRepository.GetUnresolvedWarningsByCity",
+		zap.String("city", city))
+
+	var logs []model.WarningLog
+	result := r.db.Where("city = ? AND status != ?", city, "resolved").
+		Order("start_time DESC").
+		Find(&logs)
+
+	if result.Error != nil {
+		logger.Error("Failed to get unresolved warnings",
+			zap.String("city", city),
+			zap.Error(result.Error))
+		return nil, result.Error
+	}
+
+	logger.Debug("Unresolved warnings retrieved",
+		zap.String("city", city),
+		zap.Int("count", len(logs)))
+	return logs, nil
+}
+
+// MarkWarningResolved marks a warning as resolved
+func (r *WarningLogRepository) MarkWarningResolved(warningID string) error {
+	logger.Debug("WarningLogRepository.MarkWarningResolved",
+		zap.String("warning_id", warningID))
+
+	result := r.db.Model(&model.WarningLog{}).
+		Where("warning_id = ?", warningID).
+		Update("status", "resolved")
+
+	if result.Error != nil {
+		logger.Error("Failed to mark warning as resolved",
+			zap.String("warning_id", warningID),
+			zap.Error(result.Error))
+		return result.Error
+	}
+
+	logger.Debug("Warning marked as resolved",
+		zap.String("warning_id", warningID))
+	return nil
+}

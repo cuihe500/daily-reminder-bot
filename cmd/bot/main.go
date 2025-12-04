@@ -58,7 +58,24 @@ func main() {
 	warningRepo := repository.NewWarningLogRepository(db)
 
 	// Initialize QWeather client
-	qweatherClient := qweather.NewClient(cfg.QWeather.APIKey, cfg.QWeather.BaseURL)
+	var qweatherClient *qweather.Client
+	switch cfg.QWeather.AuthMode {
+	case "jwt":
+		qweatherClient, err = qweather.NewClientWithJWT(
+			cfg.QWeather.PrivateKeyPath,
+			cfg.QWeather.KeyID,
+			cfg.QWeather.ProjectID,
+			cfg.QWeather.BaseURL,
+		)
+		if err != nil {
+			logger.Fatal("Failed to create QWeather JWT client", zap.Error(err))
+		}
+		logger.Info("QWeather client initialized with JWT authentication")
+	default:
+		// Default to API Key mode for backward compatibility
+		qweatherClient = qweather.NewClient(cfg.QWeather.APIKey, cfg.QWeather.BaseURL)
+		logger.Info("QWeather client initialized with API Key authentication")
+	}
 
 	// Initialize services
 	weatherSvc := service.NewWeatherService(qweatherClient)

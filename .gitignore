@@ -27,6 +27,10 @@ configs/config.yaml
 configs/*.yaml
 !configs/config.example.yaml
 
+# Ed25519 private keys (for JWT authentication)
+configs/ed25519-private.pem
+*.pem
+
 # Environment variables
 .env
 .env.local

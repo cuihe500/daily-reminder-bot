@@ -3,6 +3,7 @@ package qweather
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"time"
 
@@ -26,7 +27,7 @@ func (c *Client) GetWarningNow(locationID string) ([]Warning, error) {
 		zap.String("url", maskedURL),
 		zap.String("method", "GET"))
 
-	resp, err := c.client.Get(requestURL)
+	resp, err := c.doRequest(requestURL)
 	if err != nil {
 		logger.Error("HTTP request failed",
 			zap.String("url", maskedURL),
@@ -40,10 +41,18 @@ func (c *Client) GetWarningNow(locationID string) ([]Warning, error) {
 		zap.Int("status_code", resp.StatusCode),
 		zap.Duration("duration", time.Since(start)))
 
+	// Read response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Error("Failed to read response body", zap.Error(err))
+		return nil, fmt.Errorf("failed to read warning response: %w", err)
+	}
+
 	var warningResp WarningResponse
-	if err := json.NewDecoder(resp.Body).Decode(&warningResp); err != nil {
+	if err := json.Unmarshal(bodyBytes, &warningResp); err != nil {
 		logger.Error("Failed to decode response",
-			zap.Error(err))
+			zap.Error(err),
+			zap.String("body", string(bodyBytes)))
 		return nil, fmt.Errorf("failed to decode warning response: %w", err)
 	}
 

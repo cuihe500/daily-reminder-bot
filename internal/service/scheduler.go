@@ -123,12 +123,13 @@ func (s *SchedulerService) sendReminder(sub model.Subscription) {
 	now := time.Now().In(s.timezone)
 
 	// Get location ID and weather data
-	locationID, err := s.weatherSvc.Client().GetLocationID(sub.City)
+	location, err := s.weatherSvc.Client().GetLocation(sub.City)
 	if err != nil {
-		logger.Error("Failed to get location ID", zap.Uint("user_id", sub.UserID), zap.Error(err))
+		logger.Error("Failed to get location", zap.Uint("user_id", sub.UserID), zap.Error(err))
 		s.sendFallbackReminder(sub, now, fmt.Sprintf("⚠️ 无法获取 %s 的位置信息", sub.City))
 		return
 	}
+	locationID := location.ID
 
 	weather, err := s.weatherSvc.Client().GetCurrentWeather(locationID)
 	if err != nil {
@@ -144,7 +145,7 @@ func (s *SchedulerService) sendReminder(sub model.Subscription) {
 	}
 
 	// Get air quality (non-critical, failure won't interrupt)
-	airQuality, err := s.weatherSvc.Client().GetAirNow(locationID)
+	airQuality, err := s.weatherSvc.Client().GetAirQualityCurrent(location.Lat, location.Lon)
 	if err != nil {
 		logger.Warn("Failed to get air quality", zap.Uint("user_id", sub.UserID), zap.Error(err))
 		airQuality = nil
@@ -184,6 +185,7 @@ func (s *SchedulerService) sendReminder(sub model.Subscription) {
 			Todos:        todos,
 			CalendarInfo: calendarInfo,
 			AirQuality:   airQuality,
+			Warnings:     warnings,
 		}
 
 		aiContent, ok := s.aiSvc.GenerateReminder(ctx, data)
@@ -210,7 +212,7 @@ func (s *SchedulerService) buildFallbackMessage(
 	city string,
 	weather *qweather.CurrentWeather,
 	indices []qweather.LifeIndex,
-	airQuality *qweather.AirNow,
+	airQuality *qweather.AirQualityResponse,
 	warnings []qweather.Warning,
 	todos []model.Todo,
 	now time.Time,
@@ -272,11 +274,25 @@ func (s *SchedulerService) buildFallbackMessage(
 	}
 
 	// Add air quality
-	if airQuality != nil {
+	if airQuality != nil && len(airQuality.Indexes) > 0 {
+		// Find primary index (prefer "qaqi" for China, or "us-epa", or first available)
+		var mainIndex qweather.AirQualityIndex
+		foundIndex := false
+		for _, idx := range airQuality.Indexes {
+			if idx.Code == "qaqi" {
+				mainIndex = idx
+				foundIndex = true
+				break
+			}
+		}
+		if !foundIndex {
+			mainIndex = airQuality.Indexes[0]
+		}
+
 		report.WriteString("🌫️ 空气质量：\n")
-		report.WriteString(fmt.Sprintf("   AQI：%s（%s）\n", airQuality.Aqi, airQuality.Category))
-		if airQuality.Primary != "" && airQuality.Primary != "NA" {
-			report.WriteString(fmt.Sprintf("   主要污染物：%s\n", airQuality.Primary))
+		report.WriteString(fmt.Sprintf("   AQI：%.0f（%s）\n", mainIndex.Aqi, mainIndex.Category))
+		if mainIndex.PrimaryPollutant.Name != "" {
+			report.WriteString(fmt.Sprintf("   主要污染物：%s\n", mainIndex.PrimaryPollutant.Name))
 		}
 		report.WriteString("\n")
 	}

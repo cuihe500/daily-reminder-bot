@@ -111,6 +111,87 @@ type AirNow struct {
 	O3       string `json:"o3"`       // O3 concentration
 }
 
+// AirQualityResponse represents the response from QWeather Air Quality API v1
+type AirQualityResponse struct {
+	Metadata   Metadata          `json:"metadata"`
+	Indexes    []AirQualityIndex `json:"indexes"`
+	Pollutants []Pollutant       `json:"pollutants"`
+	Stations   []Station         `json:"stations"`
+}
+
+// Metadata represents response metadata
+type Metadata struct {
+	Tag string `json:"tag"`
+}
+
+// AirQualityIndex represents an air quality index (e.g., US EPA, QAQI)
+type AirQualityIndex struct {
+	Code             string           `json:"code"`             // Index code (e.g., "us-epa", "qaqi")
+	Name             string           `json:"name"`             // Index name
+	Aqi              float64          `json:"aqi"`              // AQI value
+	AqiDisplay       string           `json:"aqiDisplay"`       // AQI display value
+	Level            string           `json:"level"`            // Level
+	Category         string           `json:"category"`         // Category (e.g., "Good")
+	Color            Color            `json:"color"`            // Color code
+	PrimaryPollutant PrimaryPollutant `json:"primaryPollutant"` // Primary pollutant
+	Health           Health           `json:"health"`           // Health advice
+}
+
+// Color represents RGBA color
+type Color struct {
+	Red   int     `json:"red"`
+	Green int     `json:"green"`
+	Blue  int     `json:"blue"`
+	Alpha float64 `json:"alpha"`
+}
+
+// PrimaryPollutant represents the primary pollutant
+type PrimaryPollutant struct {
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+	FullName string `json:"fullName"`
+}
+
+// Health represents health effects and advice
+type Health struct {
+	Effect string       `json:"effect"`
+	Advice HealthAdvice `json:"advice"`
+}
+
+// HealthAdvice represents health advice for different populations
+type HealthAdvice struct {
+	GeneralPopulation   string `json:"generalPopulation"`
+	SensitivePopulation string `json:"sensitivePopulation"`
+}
+
+// Pollutant represents a specific pollutant's data
+type Pollutant struct {
+	Code          string        `json:"code"`          // Pollutant code (pm2p5, pm10, etc.)
+	Name          string        `json:"name"`          // Pollutant name
+	FullName      string        `json:"fullName"`      // Full name
+	Concentration Concentration `json:"concentration"` // Concentration value
+	SubIndexes    []SubIndex    `json:"subIndexes"`    // Sub-indexes
+}
+
+// Concentration represents pollutant concentration
+type Concentration struct {
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+
+// SubIndex represents a sub-index for a pollutant
+type SubIndex struct {
+	Code       string  `json:"code"`
+	Aqi        float64 `json:"aqi"`
+	AqiDisplay string  `json:"aqiDisplay"`
+}
+
+// Station represents a monitoring station
+type Station struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // AirDailyResponse represents the response from QWeather API for daily air quality forecast
 type AirDailyResponse struct {
 	Code  string     `json:"code"`

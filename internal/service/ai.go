@@ -40,8 +40,9 @@ type ReminderData struct {
 	Weather      *qweather.CurrentWeather
 	LifeIndices  []qweather.LifeIndex
 	Todos        []model.Todo
-	CalendarInfo string           // Formatted calendar info including lunar date, festivals, solar terms
-	AirQuality   *qweather.AirNow // Air quality data (optional)
+	CalendarInfo string                       // Formatted calendar info including lunar date, festivals, solar terms
+	AirQuality   *qweather.AirQualityResponse // Air quality data (optional)
+	Warnings     []qweather.Warning           // Weather warnings (optional)
 }
 
 // GenerateReminder generates a daily reminder using AI with retry logic
@@ -88,21 +89,24 @@ func buildSystemPrompt() string {
 要求：
 1. 开头根据现在的时间给予问候（比如早上好、中午好等），展示今日日期（公历和农历），如有节日或节气要特别提及
 2. 如果临近重要节日/假期，给予温馨提示（如"还有X天就放假啦"）
-3. 详细解读天气状况：
+3. 如果有天气预警，必须在开头用醒目的方式提醒用户注意，说明预警类型、等级和简要建议
+4. 详细解读天气状况：
    - 重点关注实际温度与体感温度的差异，如果相差较大需特别说明原因（风力、湿度等）
    - 根据风力等级和风速给出具体影响提示（如3级以上建议注意防风）
    - 结合湿度说明体感舒适度（如高湿度闷热、低湿度干燥）
    - 如果天气有特殊情况（高温、低温、大风、高湿度等）需重点提醒
-4. 充分利用生活指数给出实用建议：
+5. 充分利用生活指数给出实用建议：
    - 穿衣指数：具体建议穿什么类型的衣物
    - 紫外线指数：说明是否需要防晒措施
    - 运动指数：建议适合的运动类型或是否适宜户外活动
-5. 自然地提及今日待办事项，如有多项可按重要程度排序提醒
-6. 根据天气、节日、待办事项的综合情况给出贴心的生活建议
-7. 保持积极正面、温暖友善的语气
-8. 使用适当的 emoji 增加亲和力和可读性
-9. 总长度控制在 350 字以内
-10. 使用中文回复`
+6. 根据空气质量给出健康建议：
+   - 如果空气质量差，提醒减少户外活动或佩戴口罩
+7. 自然地提及今日待办事项，如有多项可按重要程度排序提醒
+8. 根据天气、节日、待办事项的综合情况给出贴心的生活建议
+9. 保持积极正面、温暖友善的语气
+10. 使用适当的 emoji 增加亲和力和可读性
+11. 总长度控制在 400 字以内
+12. 使用中文回复`
 }
 
 // buildUserPrompt builds the user prompt with weather and todo data
@@ -179,15 +183,29 @@ func buildUserPrompt(data ReminderData) string {
 
 	// Format air quality
 	var airQualityInfo string
-	if data.AirQuality != nil {
-		airQualityInfo = fmt.Sprintf(`• AQI：%s
+	if data.AirQuality != nil && len(data.AirQuality.Indexes) > 0 {
+		// Find primary index (prefer "qaqi" for China, or "us-epa", or first available)
+		var mainIndex qweather.AirQualityIndex
+		foundIndex := false
+		for _, idx := range data.AirQuality.Indexes {
+			if idx.Code == "qaqi" {
+				mainIndex = idx
+				foundIndex = true
+				break
+			}
+		}
+		if !foundIndex {
+			mainIndex = data.AirQuality.Indexes[0]
+		}
+
+		airQualityInfo = fmt.Sprintf(`• AQI：%.0f
 • 等级：%s
 • 类别：%s`,
-			data.AirQuality.Aqi,
-			data.AirQuality.Level,
-			data.AirQuality.Category)
-		if data.AirQuality.Primary != "" && data.AirQuality.Primary != "NA" {
-			airQualityInfo += fmt.Sprintf("\n• 主要污染物：%s", data.AirQuality.Primary)
+			mainIndex.Aqi,
+			mainIndex.Level,
+			mainIndex.Category)
+		if mainIndex.PrimaryPollutant.Name != "" {
+			airQualityInfo += fmt.Sprintf("\n• 主要污染物：%s", mainIndex.PrimaryPollutant.Name)
 		}
 	} else {
 		airQualityInfo = "暂无空气质量数据"
@@ -199,9 +217,15 @@ func buildUserPrompt(data ReminderData) string {
 		calendarInfo = fmt.Sprintf("日期: %s", data.Date)
 	}
 
+	// Format warnings
+	warningsInfo := formatWarningsForAI(data.Warnings)
+
 	return fmt.Sprintf(`请根据以下信息生成今日提醒：
 
 【日期信息】
+%s
+
+【天气预警】
 %s
 
 【天气信息】
@@ -217,10 +241,31 @@ func buildUserPrompt(data ReminderData) string {
 %s
 
 请特别注意：
-1. 如果实际温度与体感温度相差较大（≥3°C），请重点说明并解释原因
-2. 根据风速和风力等级判断是否需要提醒防风
-3. 根据湿度水平说明体感舒适度（<30%%干燥，>70%%潮湿闷热）
-4. 根据AQI等级给出健康建议（优：无需特殊措施，良：敏感人群减少户外，轻度污染以上：减少户外活动，佩戴口罩）
-5. 充分利用生活指数的详细建议，给出具体可行的行动指导
-6. 如果有待办事项，要自然地融入提醒中，不要生硬列举`, calendarInfo, weatherInfo, airQualityInfo, indicesInfo, todosInfo)
+1. 如果有天气预警，必须在开头醒目提醒，说明预警内容和应对建议
+2. 如果实际温度与体感温度相差较大（≥3°C），请重点说明并解释原因
+3. 根据风速和风力等级判断是否需要提醒防风
+4. 根据湿度水平说明体感舒适度（<30%%干燥，>70%%潮湿闷热）
+5. 根据AQI等级给出健康建议（优：无需特殊措施，良：敏感人群减少户外，轻度污染以上：减少户外活动，佩戴口罩）
+6. 充分利用生活指数的详细建议，给出具体可行的行动指导
+7. 如果有待办事项，要自然地融入提醒中，不要生硬列举`, calendarInfo, warningsInfo, weatherInfo, airQualityInfo, indicesInfo, todosInfo)
+}
+
+// formatWarningsForAI formats weather warnings for AI prompt
+func formatWarningsForAI(warnings []qweather.Warning) string {
+	if len(warnings) == 0 {
+		return "当前无天气预警"
+	}
+
+	var result string
+	for i, w := range warnings {
+		if i > 0 {
+			result += "\n"
+		}
+		result += fmt.Sprintf("• 预警类型：%s\n  级别：%s\n  颜色：%s\n  内容：%s",
+			w.TypeName, w.Level, w.SeverityColor, w.Title)
+		if w.Text != "" {
+			result += fmt.Sprintf("\n  详情：%s", w.Text)
+		}
+	}
+	return result
 }
